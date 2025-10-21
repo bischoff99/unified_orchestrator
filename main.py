@@ -4,6 +4,7 @@ import asyncio
 import argparse
 import os
 from src.orchestrator.crew_config import ProductionCrew
+from src.orchestrator.minimal_crew_config import MinimalCrew
 from src.utils.logging_setup import setup_logging
 
 log = setup_logging()
@@ -16,13 +17,17 @@ async def main():
 Examples:
   python main.py "Build a FastAPI notes service"
   python main.py "Build a FastAPI notes service" --backend ollama
-  python main.py "Build a FastAPI notes service" --backend mlx
-  python main.py "Create a React dashboard" --benchmark
+  python main.py "Build a FastAPI notes service" --minimal
+  python main.py "Create a React dashboard" --minimal --benchmark
 
 Backends:
   ollama  - Local Ollama models (default)
   mlx     - Apple Silicon MLX backend
   openai  - OpenAI API
+
+Crew Modes:
+  --minimal  - 4 agents (Architect, Builder, QA, Docs) - faster, ~40-50% less tokens
+  (default)  - 6 agents (Architect, FullStack, QA, DevOps, Docs, Critic) - comprehensive
         """
     )
     
@@ -44,6 +49,12 @@ Backends:
         help="Collect performance metrics"
     )
     
+    parser.add_argument(
+        "--minimal",
+        action="store_true",
+        help="Use 4-agent minimal crew for faster iteration (Architect, Builder, QA, Docs)"
+    )
+    
     args = parser.parse_args()
     
     # Set backend environment variable
@@ -51,6 +62,10 @@ Backends:
     
     log.info(f"Task: {args.task}")
     log.info(f"Backend: {args.backend}")
+    log.info(f"Crew Mode: {'Minimal (4 agents)' if args.minimal else 'Full (6 agents)'}")
+    
+    # Select crew configuration
+    CrewClass = MinimalCrew if args.minimal else ProductionCrew
     
     # Run with metrics if benchmarking
     if args.benchmark:
@@ -59,7 +74,7 @@ Backends:
             metrics = MetricsCollector()
             
             with metrics.measure("orchestration"):
-                crew = ProductionCrew(args.task)
+                crew = CrewClass(args.task)
                 result = await asyncio.to_thread(crew.run)
             
             metrics.save()
@@ -67,10 +82,10 @@ Backends:
             log.info(f"Summary: {metrics.summary()}")
         except ImportError:
             log.warning("Metrics module not available, running without benchmarking")
-            crew = ProductionCrew(args.task)
+            crew = CrewClass(args.task)
             result = await asyncio.to_thread(crew.run)
     else:
-        crew = ProductionCrew(args.task)
+        crew = CrewClass(args.task)
         result = await asyncio.to_thread(crew.run)
     
     log.info("Orchestration complete")

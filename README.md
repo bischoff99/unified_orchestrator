@@ -53,7 +53,7 @@ AI-powered multi-agent orchestration system optimized for Apple Silicon (M3 Max)
 
 ### Prerequisites
 
-- Python 3.9+
+- **Python 3.10+** (3.11+ recommended) ⚠️ *CrewAI requires 3.10+ for Union type syntax*
 - macOS with Apple Silicon (M3 Max recommended) or any system for non-MLX backends
 - Ollama (for local LLM) or API keys for cloud providers
 
@@ -107,15 +107,22 @@ ollama pull llama3.1:8b-instruct-q5_K_M
 ### Run Your First Task
 
 ```bash
-# Basic usage
+# Basic usage (6-agent full crew)
 python main.py "Build a FastAPI notes service"
 
+# Minimal crew (4 agents - faster, 50% fewer tokens)
+python main.py "Build a REST API for todo management" --minimal
+
 # With specific backend
-python main.py "Build a REST API for todo management" --backend ollama
+python main.py "Build a data pipeline" --backend mlx
 
 # With performance benchmarking
 python main.py "Create a web scraper" --benchmark
 ```
+
+**Crew Modes:**
+- **Default (6 agents)**: Architect, FullStack, DevOps, QA, Docs, Critic - comprehensive
+- **--minimal (4 agents)**: Architect, Builder, QA, Docs - 40% faster, 50% less cost
 
 ## 📖 Usage Examples
 

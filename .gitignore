@@ -53,6 +53,12 @@ mlx_models/
 *.pth
 models/
 
+# Training & Experiments
+mlruns/
+data/*.jsonl
+data/*.csv
+*.ckpt
+
 # IDEs
 .vscode/
 .idea/
