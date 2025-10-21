@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from crewai import tool
+from crewai.tools import tool
 
 logger = logging.getLogger(__name__)
 

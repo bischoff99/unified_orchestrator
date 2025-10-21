@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-from crewai import tool
+from crewai.tools import tool
 
 logger = logging.getLogger(__name__)
 
