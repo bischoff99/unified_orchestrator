@@ -150,23 +150,14 @@ class ProductionCrew:
         print(f"🧠 Memory: Enabled with ChromaDB + sentence-transformers")
         print(f"💾 Cache: Enabled\n")
 
-        # Configure embedder for memory system
-        embedder_config = {
-            "provider": "huggingface",
-            "config": {
-                "model": "sentence-transformers/all-MiniLM-L6-v2"
-            }
-        }
-
+        # CrewAI v1.0.0 - simplified configuration
         crew = Crew(
             agents=list(self.agents.values()),
             tasks=self.tasks,
             process=Process.sequential,  # Sequential with context dependencies for parallelism
             verbose=True,
-            memory=True,  # Enable crew memory with ChromaDB backend
-            embedder=embedder_config,  # Explicit embedder for consistent memory
+            memory=False,  # Disable for faster startup
             max_rpm=100,  # M3 Max can handle high throughput
-            share_crew=True  # Enable context sharing between agents
         )
 
         result = crew.kickoff()

@@ -198,23 +198,14 @@ class MinimalCrew:
         print(f"🧠 Memory: Enabled with ChromaDB")
         print(f"💡 Optimized for faster iteration\n")
 
-        # Configure embedder for memory system
-        embedder_config = {
-            "provider": "huggingface",
-            "config": {
-                "model": "sentence-transformers/all-MiniLM-L6-v2"
-            }
-        }
-
+        # CrewAI v1.0.0 - simplified configuration
         crew = Crew(
             agents=list(self.agents.values()),
             tasks=self.tasks,
             process=Process.sequential,
             verbose=True,
-            memory=True,
-            embedder=embedder_config,
+            memory=False,  # Disable memory for faster startup
             max_rpm=100,
-            share_crew=True
         )
 
         result = crew.kickoff()
