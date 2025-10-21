@@ -336,6 +336,84 @@ pip install mlx mlx-lm
 pip install faiss-cpu
 ```
 
+## 🎓 HuggingFace Pro Training & Inference
+
+### Train Custom Models
+
+```bash
+# Train with LoRA fine-tuning on M3 Max
+python examples/train_custom_model.py
+
+# With HF Pro upload
+python -c "
+from src.agents.hf_trainer_agent import HFTrainerAgent
+result = HFTrainerAgent.train_with_profiling(
+    dataset_path='data/your_data.jsonl',
+    hf_repo='your-username/model-name',
+    max_steps=100
+)
+print(f'Model trained: {result}')
+"
+```
+
+### Use HF Pro Inference
+
+```bash
+# With cost monitoring and safety validation
+python examples/hf_pro_inference_example.py
+```
+
+### Cost Management
+
+- **Budget:** £3.33/day, £100/month
+- **Auto-fallback** to Ollama when budget exceeded
+- **Safety validation** on all outputs
+- **Usage tracking** with detailed reports
+
+## 📊 Production Monitoring
+
+### Start Monitoring Stack
+
+```bash
+# One-command startup
+./scripts/start_monitoring.sh
+
+# Access dashboards
+# Grafana: http://localhost:3000 (admin/admin)
+# Prometheus: http://localhost:9090
+# MLflow: http://localhost:5000
+```
+
+### Metrics Tracked
+
+- **Inference latency** (target: <100ms/token)
+- **Daily costs** (budget: £3.33)
+- **GPU memory** (M3 Max 40-core)
+- **Safety filter pass rate** (target: >99%)
+- **Token generation rate**
+- **Training progress**
+
+### Automated Monitoring
+
+```bash
+# Setup nightly profiling (runs at 2 AM)
+./scripts/setup_cron.sh
+
+# View profiling logs
+tail -f logs/nightly_profiling.log
+```
+
+### Alerts
+
+15 configured alert rules:
+- High latency (>100ms)
+- Budget warnings (>80%)
+- Safety failures (>1%)
+- GPU memory (>80%)
+- Training issues
+
+See [monitoring/README.md](monitoring/README.md) for complete documentation.
+
 ## 🤝 Contributing
 
 Contributions welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
