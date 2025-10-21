@@ -2,6 +2,8 @@
 
 Tracks HF Pro API usage, monitors costs against budget, and provides
 automatic fallback to Ollama when budget limits are approached.
+
+Thread-safe for concurrent agent usage.
 """
 
 import logging
@@ -9,6 +11,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from pathlib import Path
+from threading import Lock
 import json
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,9 @@ class HFCostMonitor:
         
         self.usage_file = self.cache_dir / "usage_log.json"
         self.usage_log = self._load_usage_log()
+        
+        # Thread safety for concurrent agent usage
+        self._lock = Lock()
 
     def _load_usage_log(self) -> List[Dict[str, Any]]:
         """Load usage log from cache."""
@@ -69,7 +75,7 @@ class HFCostMonitor:
         latency_ms: float,
         success: bool = True,
     ) -> None:
-        """Record an inference call.
+        """Record an inference call (thread-safe).
         
         Args:
             model_id: HuggingFace model ID
@@ -86,8 +92,10 @@ class HFCostMonitor:
             "cost_gbp": (tokens_used / 1000.0) * self.cost_per_1k_tokens,
         }
         
-        self.usage_log.append(entry)
-        self._save_usage_log()
+        # Thread-safe append and save
+        with self._lock:
+            self.usage_log.append(entry)
+            self._save_usage_log()
         
         logger.info(
             f"Recorded inference: {model_id}, {tokens_used} tokens, "

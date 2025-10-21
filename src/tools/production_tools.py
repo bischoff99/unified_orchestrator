@@ -3,13 +3,38 @@ from crewai.tools import tool
 from pathlib import Path
 import json
 import ast
+import fcntl
 from datetime import date
+from contextlib import contextmanager
+
+
+@contextmanager
+def file_lock(file_path: Path):
+    """Context manager for exclusive file locking to prevent race conditions.
+    
+    Args:
+        file_path: Path to file being written
+        
+    Yields:
+        Lock context (file is exclusively locked)
+    """
+    lock_path = file_path.with_suffix(file_path.suffix + '.lock')
+    lock_file = open(lock_path, 'w')
+    
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)  # Exclusive lock
+        yield
+    finally:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)  # Unlock
+        lock_file.close()
+        lock_path.unlink(missing_ok=True)  # Clean up lock file
 
 
 @tool("Write File")
 def write_file(file_path: str, content: str) -> str:
     """
-    Write content to a file. Creates parent directories if needed.
+    Write content to a file with exclusive locking for parallel safety.
+    Creates parent directories if needed.
     
     Args:
         file_path: Relative path from project root (e.g., 'src/generated/main.py')
@@ -17,6 +42,8 @@ def write_file(file_path: str, content: str) -> str:
         
     Returns:
         Success message with file path
+        
+    Thread-Safety: Uses fcntl.flock() for exclusive file locking
     """
     import os
     try:
@@ -29,12 +56,13 @@ def write_file(file_path: str, content: str) -> str:
         path = Path(file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Write file
-        with open(path, 'w') as f:
-            f.write(content)
+        # Write file with exclusive lock (parallel-safe)
+        with file_lock(path):
+            with open(path, 'w') as f:
+                f.write(content)
         
         abs_path = path.absolute()
-        print(f"🔧 [TOOL] ✅ Written to: {abs_path}")
+        print(f"🔧 [TOOL] ✅ Written to: {abs_path} (locked)")
         print(f"🔧 [TOOL] File exists: {abs_path.exists()}")
         
         return f"✅ File written successfully: {file_path} ({len(content)} chars) at {abs_path}"

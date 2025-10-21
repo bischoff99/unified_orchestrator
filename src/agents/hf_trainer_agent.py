@@ -6,6 +6,7 @@ from pathlib import Path
 
 from crewai import Agent
 from config import get_llm_backend
+from src.utils.gpu_manager import get_gpu_manager
 
 logger = logging.getLogger(__name__)
 
@@ -84,15 +85,19 @@ class HFTrainerAgent:
                 mlflow.log_params(params)
                 logger.info(f"Training parameters: {params}")
 
-                # Load model for M3 Max MPS
-                logger.info(f"Loading model: {model_name}")
-                model = AutoModelForCausalLM.from_pretrained(
-                    model_name,
-                    device_map="mps",
-                    torch_dtype=torch.float16,
-                    use_cache=False,  # Required for gradient checkpointing
-                )
-                tokenizer = AutoTokenizer.from_pretrained(model_name)
+                # Acquire GPU resource (prevent oversubscription)
+                gpu_mgr = get_gpu_manager()
+                
+                with gpu_mgr.acquire_gpu("hf_trainer", estimated_memory_gb=24):
+                    # Load model for M3 Max MPS
+                    logger.info(f"Loading model: {model_name}")
+                    model = AutoModelForCausalLM.from_pretrained(
+                        model_name,
+                        device_map="mps",
+                        torch_dtype=torch.float16,
+                        use_cache=False,  # Required for gradient checkpointing
+                    )
+                    tokenizer = AutoTokenizer.from_pretrained(model_name)
                 
                 # Set pad token if not present
                 if tokenizer.pad_token is None:
