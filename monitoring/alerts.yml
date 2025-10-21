@@ -1,0 +1,146 @@
+# Alert rules for HuggingFace Pro + MCP monitoring
+
+groups:
+  - name: hf_pro_alerts
+    interval: 1m
+    rules:
+      # Latency alerts
+      - alert: HighInferenceLatency
+        expr: hf_inference_latency_ms > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: inference
+        annotations:
+          summary: "Inference latency exceeds 100ms target"
+          description: "HF Pro inference latency is {{ $value }}ms (target: <100ms). Consider scaling endpoint or implementing caching."
+      
+      # GPU Memory alerts
+      - alert: HighGPUMemory
+        expr: gpu_memory_percent > 80
+        for: 2m
+        labels:
+          severity: warning
+          component: training
+        annotations:
+          summary: "GPU memory usage above 80%"
+          description: "M3 Max GPU memory is {{ $value }}%. Reduce batch size or enable gradient checkpointing."
+      
+      - alert: CriticalGPUMemory
+        expr: gpu_memory_percent > 95
+        for: 1m
+        labels:
+          severity: critical
+          component: training
+        annotations:
+          summary: "GPU memory critically high"
+          description: "M3 Max GPU memory is {{ $value }}%. Training may crash. Immediate action required."
+      
+      # Budget alerts
+      - alert: BudgetWarning
+        expr: cost_daily_pounds > 2.66
+        for: 10m
+        labels:
+          severity: warning
+          component: cost
+        annotations:
+          summary: "Daily HF Pro cost approaching budget"
+          description: "Daily cost is £{{ $value }} (80% of £3.33 budget). Consider switching to Ollama."
+      
+      - alert: BudgetExceeded
+        expr: cost_daily_pounds >= 3.33
+        for: 5m
+        labels:
+          severity: critical
+          component: cost
+        annotations:
+          summary: "Daily HF Pro budget exceeded"
+          description: "Daily cost is £{{ $value }} (budget: £3.33). HF Pro should be disabled. Fallback to Ollama."
+      
+      # Safety alerts
+      - alert: HighSafetyFailureRate
+        expr: rate(safety_failures_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: safety
+        annotations:
+          summary: "Safety filter failure rate above 1%"
+          description: "{{ $value }} safety failures per second. Review model outputs and filter thresholds."
+      
+      - alert: CriticalSafetyFailures
+        expr: rate(safety_failures_total[1m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          component: safety
+        annotations:
+          summary: "Critical safety failure rate"
+          description: "{{ $value }} safety failures per second. Immediate review required."
+      
+      # Performance alerts
+      - alert: LowThroughput
+        expr: rate(tokens_generated_total[5m]) < 10
+        for: 10m
+        labels:
+          severity: info
+          component: performance
+        annotations:
+          summary: "Low token generation throughput"
+          description: "Generating {{ $value }} tokens/sec (expected: >10). Check system resources."
+      
+      # Training alerts
+      - alert: TrainingStalled
+        expr: increase(training_steps_total[10m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+          component: training
+        annotations:
+          summary: "Training appears stalled"
+          description: "No training progress in 10 minutes. Check logs for errors."
+      
+      - alert: HighTrainingLoss
+        expr: training_loss > 2.0
+        for: 5m
+        labels:
+          severity: info
+          component: training
+        annotations:
+          summary: "Training loss elevated"
+          description: "Training loss is {{ $value }}. May indicate learning rate issues."
+
+  - name: system_alerts
+    interval: 1m
+    rules:
+      # System health
+      - alert: HighCPUUsage
+        expr: node_cpu_usage_percent > 90
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "CPU usage above 90%"
+          description: "System CPU at {{ $value }}%. May impact training performance."
+      
+      - alert: HighMemoryUsage
+        expr: node_memory_usage_percent > 90
+        for: 3m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "System memory critically high"
+          description: "RAM usage at {{ $value }}%. Risk of OOM errors."
+      
+      - alert: DiskSpaceLow
+        expr: node_disk_free_gb < 10
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "Disk space below 10GB"
+          description: "Only {{ $value }}GB free. Clean up old models/logs."
+

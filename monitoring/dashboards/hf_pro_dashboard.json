@@ -1,0 +1,190 @@
+{
+  "dashboard": {
+    "title": "HuggingFace Pro + MCP Monitoring",
+    "tags": ["hf-pro", "mcp", "ml-training"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Inference Latency (ms)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, hf_inference_latency_ms)",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, hf_inference_latency_ms)",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, hf_inference_latency_ms)",
+            "legendFormat": "p99"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "yaxes": [
+          {"label": "Latency (ms)", "format": "ms"},
+          {"show": false}
+        ],
+        "alert": {
+          "name": "High Latency Alert",
+          "conditions": [
+            {
+              "evaluator": {"type": "gt", "params": [100]},
+              "query": {"params": ["A", "5m", "now"]}
+            }
+          ]
+        }
+      },
+      {
+        "id": 2,
+        "title": "Daily Cost (GBP)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "cost_daily_pounds",
+            "legendFormat": "Current Cost"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "yaxes": [
+          {"label": "Cost (£)", "format": "currencyGBP"},
+          {"show": false}
+        ],
+        "thresholds": [
+          {"value": 2.66, "colorMode": "critical", "op": "gt", "fill": true, "line": true},
+          {"value": 3.33, "colorMode": "critical", "op": "gt", "fill": true, "line": true}
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Tokens Generated (Total)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "tokens_generated_total",
+            "legendFormat": "Total Tokens"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "Safety Failures",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "safety_failures_total",
+            "legendFormat": "Failures"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 8},
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            {"value": 0, "color": "green"},
+            {"value": 1, "color": "yellow"},
+            {"value": 10, "color": "red"}
+          ]
+        }
+      },
+      {
+        "id": 5,
+        "title": "GPU Memory Usage (%)",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "gpu_memory_percent",
+            "legendFormat": "GPU Memory"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 8},
+        "options": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": 0, "color": "green"},
+              {"value": 70, "color": "yellow"},
+              {"value": 85, "color": "red"}
+            ]
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Budget Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "(cost_daily_pounds / 3.33) * 100",
+            "legendFormat": "Budget Used %"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 8},
+        "options": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": 0, "color": "green"},
+              {"value": 80, "color": "yellow"},
+              {"value": 100, "color": "red"}
+            ]
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Token Generation Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(tokens_generated_total[5m])",
+            "legendFormat": "Tokens/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+        "yaxes": [
+          {"label": "Tokens/sec", "format": "short"},
+          {"show": false}
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Safety Filter Pass Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "1 - rate(safety_failures_total[5m]) / rate(tokens_generated_total[5m])",
+            "legendFormat": "Pass Rate"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+        "yaxes": [
+          {"label": "Pass Rate", "format": "percentunit", "min": 0.9, "max": 1.0},
+          {"show": false}
+        ],
+        "alert": {
+          "name": "Low Safety Pass Rate",
+          "conditions": [
+            {
+              "evaluator": {"type": "lt", "params": [0.99]},
+              "query": {"params": ["A", "5m", "now"]}
+            }
+          ]
+        }
+      }
+    ],
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": ["10s", "30s", "1m", "5m"]
+    },
+    "version": 1
+  }
+}
+
