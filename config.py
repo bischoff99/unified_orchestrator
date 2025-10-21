@@ -8,9 +8,9 @@ load_dotenv()
 # Model Configuration
 # ========================================
 MODEL_CONFIG = {
-    "model_name": os.getenv("MODEL_NAME", "gpt-4o"),  # or "gpt-3.5-turbo", "llama3.1:8b"
-    "temperature": float(os.getenv("MODEL_TEMPERATURE", "0.7")),
-    "max_tokens": int(os.getenv("MODEL_MAX_TOKENS", "2048")),
+    "model_name": os.getenv("MODEL_NAME", "llama3.1:8b-instruct-q5_K_M"),  # Default to llama3.1 for Ollama
+    "temperature": float(os.getenv("MODEL_TEMPERATURE", "0.3")),  # Lower for more deterministic, complete code
+    "max_tokens": int(os.getenv("MODEL_MAX_TOKENS", "4096")),  # Increased for complete implementations
 }
 
 MODEL_BACKEND = os.getenv("MODEL_BACKEND", "ollama").lower()  # ollama, mlx, openai, anthropic, huggingface
