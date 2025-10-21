@@ -1,0 +1,88 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv
+
+# Secrets & Config
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+config.local.json
+
+# Project Specific
+logs/
+*.log
+memory/
+.chroma/
+src/generated/
+pipeline_results/
+output/
+generation.log
+
+# ML Models & Weights
+mlx_models/
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+models/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+.cursor/
+!.claude/settings.local.json
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+
+# Thumbnails
+._*
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/

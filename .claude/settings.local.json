@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python validate_structure.py:*)",
+      "Bash(make test:*)",
+      "Bash(python3:*)",
+      "Bash(pytest:*)",
+      "Bash(pip3 install:*)",
+      "Bash(source venv/bin/activate)",
+      "Bash(pip install:*)",
+      "Bash(python3.13 -m venv:*)",
+      "Bash(PYTHONPATH=/Users/andrejsp/Developer/projects/unified_orchestrator pytest:*)",
+      "Bash(if [ -d .git ])",
+      "Bash(then echo \"Git repository already initialized\")",
+      "Bash(else git init)",
+      "Bash(fi)",
+      "Bash(export PYTHONPATH=/Users/andrejsp/Developer/projects/unified_orchestrator:*)",
+      "Bash(python -c \"import chromadb; print(f''ChromaDB {chromadb.__version__} installed'')\")",
+      "Bash(python test_memory.py)",
+      "Bash(python test_crew_memory.py)",
+      "Bash(python -c \"\nfrom src.orchestrator.crew_config import ProductionCrew\nfrom src.utils.vector_store import VectorMemory\n\n# Test crew instantiation\ncrew = ProductionCrew(''Test task'')\nprint(f''✅ Crew created: {len(crew.agents)} agents, {len(crew.tasks)} tasks'')\n\n# Test vector memory\nmemory = VectorMemory(''final_test'')\nmemory.save(''test'', ''Final verification test'', {''status'': ''ok''})\nresult = memory.load(''test'')\nprint(f''✅ VectorMemory working: {result}'')\n\nprint(''✅ All components integrated successfully!'')\n\")",
+      "Bash(pip show crewai)",
+      "Bash(python -c \"import faiss; print(f''FAISS {faiss.__version__} installed''); print(''Available:'', dir(faiss)[:10])\")",
+      "Bash(python -c \"\nfrom src.utils.faiss_store import FAISSVectorStore\n\n# Quick test\nstore = FAISSVectorStore(index_path=''./faiss_quick_test'')\nstore.add([''Test document 1'', ''Test document 2''], [{''type'': ''test''}]*2)\nresults = store.search(''test'', k=1)\nprint(f''✅ FAISS working: {len(results)} results found'')\nprint(f''   Store: {store}'')\n\n# Cleanup\nimport shutil, os\nif os.path.exists(''./faiss_quick_test''):\n    shutil.rmtree(''./faiss_quick_test'')\n\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

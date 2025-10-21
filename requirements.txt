@@ -1,0 +1,53 @@
+# Unified Orchestrator - Consolidated Dependencies
+
+# Core orchestration frameworks
+crewai>=0.140.0
+crewai-tools>=0.2.0
+
+# LLM Backends
+openai>=1.0.0
+anthropic>=0.25.0
+ollama>=0.3.3
+huggingface_hub>=0.20.0
+litellm>=1.0.0
+
+# UI & Web
+streamlit>=1.30.0
+python-dotenv>=1.0.1
+
+# API Integrations
+httpx>=0.25.0
+aiohttp>=3.8.0
+
+# Data & Storage
+chromadb>=0.5.0
+pydantic>=2.0.0
+faiss-cpu>=1.7.4                      # High-performance vector search (alternative to ChromaDB for >10K vectors)
+
+# ML/AI Core Libraries
+torch>=2.0.0                          # PyTorch with MPS support for M3 Max
+sentence-transformers>=2.2.0          # HuggingFace embeddings
+accelerate>=0.20.0                    # Optimized model loading
+sentencepiece>=0.1.99                 # Additional tokenizer support
+
+# MLX for Apple Silicon (optional)
+mlx>=0.15.0
+mlx-lm>=0.15.0
+
+# UI Automation (for Claude Desktop)
+pyautogui>=0.9.54
+pyperclip>=1.8.2
+playwright>=1.47.0
+
+# MCP Server Support
+mcp>=1.0.0
+structlog>=22.0.0
+
+# Utilities
+rich>=13.7.1
+psutil>=5.9.0
+docker>=7.1.0
+
+# Testing
+pytest>=8.3.2
+pytest-asyncio>=0.23.0
