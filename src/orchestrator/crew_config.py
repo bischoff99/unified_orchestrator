@@ -1,4 +1,4 @@
-"""Production Crew Configuration - 6-Agent Parallel Workflow"""
+"""Production Crew Configuration - 6-Agent Parallel Workflow (+ Optional HFTrainer)"""
 from crewai import Agent, Task, Crew, Process
 from src.agents.architect_agent import ArchitectAgent
 from src.agents.fullstack_agent import FullStackAgent
@@ -6,6 +6,7 @@ from src.agents.qa_agent import QAAgent
 from src.agents.critic_agent import CriticAgent
 from src.agents.devops_agent import DevOpsAgent
 from src.agents.docs_agent import DocsAgent
+from src.agents.hf_trainer_agent import HFTrainerAgent  # Optional: ML training
 
 class ProductionCrew:
     """
@@ -25,15 +26,18 @@ class ProductionCrew:
         self.tasks = self._create_tasks()
     
     def _create_agents(self):
-        """Initialize all 6 production agents"""
-        return {
+        """Initialize all production agents (6 core + 1 optional ML trainer)"""
+        agents = {
             'architect': ArchitectAgent().create(),
             'fullstack': FullStackAgent().create(),
             'qa': QAAgent().create(),
             'critic': CriticAgent().create(),
             'devops': DevOpsAgent().create(),
-            'docs': DocsAgent().create()
+            'docs': DocsAgent().create(),
+            # Optional: ML training agent for model fine-tuning tasks
+            'hf_trainer': HFTrainerAgent().create(),
         }
+        return agents
     
     def _create_tasks(self):
         """Create task workflow with dependencies"""

@@ -29,6 +29,8 @@ torch>=2.0.0                          # PyTorch with MPS support for M3 Max
 sentence-transformers>=2.2.0          # HuggingFace embeddings
 accelerate>=0.20.0                    # Optimized model loading
 sentencepiece>=0.1.99                 # Additional tokenizer support
+peft>=0.7.0                           # Parameter-Efficient Fine-Tuning (LoRA)
+datasets>=2.14.0                      # HuggingFace datasets
 
 # MLX for Apple Silicon (optional)
 mlx>=0.15.0
