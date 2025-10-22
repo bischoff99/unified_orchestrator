@@ -4,6 +4,7 @@ import httpx
 from typing import Any, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from . import ProviderError
+from src.core.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 
 
 class AnthropicProvider:
@@ -19,6 +20,8 @@ class AnthropicProvider:
         api_key: Optional[str] = None,
         timeout_s: int = 120,
         max_retries: int = 3,
+        cb_threshold: int = 5,
+        cb_cooldown_s: float = 60.0,
         **model_opts
     ):
         self._model = model
@@ -39,8 +42,11 @@ class AnthropicProvider:
                 "x-api-key": self._api_key,
                 "anthropic-version": "2023-06-01"
             },
-            timeout=timeout_s
+            timeout=httpx.Timeout(timeout_s, connect=10.0)
         )
+
+        # Circuit breaker for fault tolerance
+        self._circuit_breaker = CircuitBreaker(threshold=cb_threshold, cooldown=cb_cooldown_s)
     
     @property
     def name(self) -> str:
@@ -63,52 +69,64 @@ class AnthropicProvider:
     ) -> str:
         """
         Generate completion using Anthropic API.
-        
+
         Args:
             messages: Message history
             **opts: Override options
-            
+
         Returns:
             Generated text
-            
+
         Raises:
             ProviderError: On timeout, rate limit, or API error
         """
+        # Check circuit breaker before making request
+        try:
+            return self._circuit_breaker.call(self._generate_internal, messages, **opts)
+        except CircuitBreakerOpen as e:
+            raise ProviderError(
+                str(e),
+                kind="circuit_breaker",
+                provider="anthropic"
+            )
+
+    def _generate_internal(self, messages: list[dict], **opts: Any) -> str:
+        """Internal generation logic wrapped by circuit breaker"""
         options = {**self._model_opts, **opts}
-        
+
         # Separate system message from conversation
         system_msg = None
         conversation = []
-        
+
         for msg in messages:
             if msg.get("role") == "system":
                 system_msg = msg.get("content", "")
             else:
                 conversation.append(msg)
-        
+
         payload = {
             "model": self._model,
             "messages": conversation,
             "max_tokens": options.get("max_tokens", 8192),
             "temperature": options.get("temperature", 0.1),
         }
-        
+
         if system_msg:
             payload["system"] = system_msg
-        
+
         if options.get("stop"):
             payload["stop_sequences"] = options["stop"]
-        
+
         try:
             response = self._client.post(
                 "/messages",
                 json=payload
             )
             response.raise_for_status()
-            
+
             result = response.json()
             return result["content"][0]["text"]
-            
+
         except httpx.TimeoutException as e:
             raise ProviderError(
                 f"Anthropic request timed out after {self._timeout_s}s",
@@ -216,4 +234,3 @@ class AnthropicProvider:
         """Cleanup HTTP client"""
         if hasattr(self, '_client'):
             self._client.close()
-

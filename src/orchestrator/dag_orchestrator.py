@@ -13,7 +13,7 @@ from typing import Optional
 
 from config import get_provider, PROVIDER_OPTIONS
 from src.core.models import Job, JobSpec, JobStatus, StepResult, Artifact, Failure
-from src.core.dag import DAG, DAGNode, run_dag
+from src.core.dag import DAG, DAGNode, run_dag, read_completed_steps
 from src.core.events import EventEmitter
 from src.core.manifest import RunManager
 from src.core.filestore import FileStore
@@ -38,10 +38,14 @@ class DAGOrchestrator:
         self.events = None
         self.filestore = None
     
-    async def execute(self) -> Job:
+    async def execute(self, resume: bool = False) -> Job:
         """
         Execute the job using DAG-based orchestration.
-        
+
+        Args:
+            resume: If True, skip steps that have already succeeded in
+                previous runs (based on events.jsonl)
+
         Returns:
             Completed Job instance with all results
         """
@@ -77,6 +81,10 @@ class DAGOrchestrator:
             }
         )
         
+        dag: Optional[DAG] = None
+        completed_steps: list[str] = []
+        pending_steps: list[str] = []
+
         try:
             # Build DAG
             dag = self._build_dag()
@@ -97,12 +105,19 @@ class DAGOrchestrator:
                 context=context,
                 events=self.events,
                 concurrency=self.spec.concurrency,
-                timeout_s=self.spec.timeout_s
+                timeout_s=self.spec.timeout_s,
+                resume=resume
             )
             
             # Collect results
             for step_id, result in results.items():
                 job.add_step_result(result)
+
+            completed_steps = sorted(results.keys())
+            if dag is not None:
+                pending_steps = sorted(
+                    set(dag.nodes.keys()) - set(completed_steps)
+                )
             
             # Mark success
             job.mark_completed(JobStatus.SUCCEEDED)
@@ -125,10 +140,22 @@ class DAGOrchestrator:
                 data={"exception_type": type(e).__name__}
             )
             job.failures.append(failure)
+
+            # Derive completed/pending step lists for manifest
+            completed_events = read_completed_steps(events_path)
+            completed_steps = sorted(completed_events)
+            if dag is not None:
+                pending_steps = sorted(set(dag.nodes.keys()) - completed_events)
+            else:
+                pending_steps = []
         
         finally:
             # Update manifest
-            self.run_manager.update_manifest(job)
+            self.run_manager.update_manifest(
+                job,
+                completed_steps=completed_steps,
+                pending_steps=pending_steps
+            )
             self.events.close()
         
         return job
@@ -180,18 +207,48 @@ class DAGOrchestrator:
         
         # Cache miss - call provider
         events.cache_miss(job_id, step_id, cache_key)
-        
-        start = datetime.utcnow()
-        response = provider.generate(messages, **PROVIDER_OPTIONS)
-        duration = (datetime.utcnow() - start).total_seconds()
-        
-        # Log provider call
-        events.provider_call(
+
+        # Emit llm.request event
+        events.llm_request(
             job_id,
             step_id,
             provider.name,
-            duration
+            provider_info["model"]
         )
+
+        start = datetime.utcnow()
+        try:
+            response = provider.generate(messages, **PROVIDER_OPTIONS)
+            duration = (datetime.utcnow() - start).total_seconds()
+
+            # Emit llm.response event (success)
+            events.llm_response(
+                job_id,
+                step_id,
+                provider.name,
+                duration,
+                success=True
+            )
+
+            # Log provider call (backward compatibility)
+            events.provider_call(
+                job_id,
+                step_id,
+                provider.name,
+                duration
+            )
+        except Exception as e:
+            duration = (datetime.utcnow() - start).total_seconds()
+
+            # Emit llm.response event (failure)
+            events.llm_response(
+                job_id,
+                step_id,
+                provider.name,
+                duration,
+                success=False
+            )
+            raise
         
         # Cache response
         write_cache(cache_file, {
@@ -335,20 +392,23 @@ Include: FastAPI, SQLAlchemy, Pydantic models, endpoints, error handling."""
         )
         
         # Write generated code
-        main_path, sha256, size = filestore.safe_write(
+        write_result = filestore.safe_write(
             f"{spec.project}/main.py",
             code,
-            mode="overwrite"
+            mode="overwrite",
+            emitter=context["events"],
+            job_id=context["job_id"],
+            step_id="builder"
         )
-        
+
         # Create artifact
         artifact = Artifact(
             path=f"{spec.project}/main.py",
-            sha256=sha256,
-            size_bytes=size,
+            sha256=write_result["sha256"],
+            size_bytes=write_result["size_bytes"],
             media_type="text/x-python"
         )
-        
+
         context["events"].artifact_created(
             context["job_id"],
             "builder",
@@ -356,10 +416,10 @@ Include: FastAPI, SQLAlchemy, Pydantic models, endpoints, error handling."""
             artifact.sha256,
             artifact.size_bytes
         )
-        
+
         return {
             "files_created": 1,
-            "main_file": str(main_path),
+            "main_file": str(write_result["path"]),
             "artifact": artifact,
             "provider_calls": 0 if cache_hit else 1,
             "cache_hit": cache_hit
@@ -402,19 +462,22 @@ Include: FastAPI, SQLAlchemy, Pydantic models, endpoints, error handling."""
         )
         
         # Write README
-        readme_path, sha256, size = filestore.safe_write(
+        write_result = filestore.safe_write(
             f"{spec.project}/README.md",
             readme,
-            mode="overwrite"
+            mode="overwrite",
+            emitter=context["events"],
+            job_id=context["job_id"],
+            step_id="docs"
         )
-        
+
         artifact = Artifact(
             path=f"{spec.project}/README.md",
-            sha256=sha256,
-            size_bytes=size,
+            sha256=write_result["sha256"],
+            size_bytes=write_result["size_bytes"],
             media_type="text/markdown"
         )
-        
+
         context["events"].artifact_created(
             context["job_id"],
             "docs",
@@ -422,10 +485,10 @@ Include: FastAPI, SQLAlchemy, Pydantic models, endpoints, error handling."""
             artifact.sha256,
             artifact.size_bytes
         )
-        
+
         return {
             "files_created": 1,
-            "readme_file": str(readme_path),
+            "readme_file": str(write_result["path"]),
             "artifact": artifact,
             "provider_calls": 0 if cache_hit else 1,
             "cache_hit": cache_hit
@@ -485,16 +548,16 @@ Include: FastAPI, SQLAlchemy, Pydantic models, endpoints, error handling."""
         }
 
 
-def run_orchestrator(spec: JobSpec) -> Job:
+def run_orchestrator(spec: JobSpec, resume: bool = False) -> Job:
     """
     Convenience function to run orchestrator synchronously.
     
     Args:
         spec: Job specification
+        resume: Whether to skip previously completed steps
         
     Returns:
         Completed Job instance
     """
     orchestrator = DAGOrchestrator(spec)
-    return asyncio.run(orchestrator.execute())
-
+    return asyncio.run(orchestrator.execute(resume=resume))

@@ -2,6 +2,7 @@
 
 from typing import Any, Optional
 from . import ProviderError
+from src.core.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 
 
 class MLXProvider:
@@ -17,6 +18,8 @@ class MLXProvider:
         model_path: Optional[str] = None,
         timeout_s: int = 120,
         max_retries: int = 3,
+        cb_threshold: int = 5,
+        cb_cooldown_s: float = 60.0,
         **model_opts
     ):
         self._model = model
@@ -24,10 +27,13 @@ class MLXProvider:
         self._timeout_s = timeout_s
         self._max_retries = max_retries
         self._model_opts = model_opts
-        
+
         # Lazy load MLX (only when needed)
         self._mlx_model = None
         self._mlx_tokenizer = None
+
+        # Circuit breaker for fault tolerance
+        self._circuit_breaker = CircuitBreaker(threshold=cb_threshold, cooldown=cb_cooldown_s)
     
     @property
     def name(self) -> str:
@@ -69,30 +75,42 @@ class MLXProvider:
     ) -> str:
         """
         Generate completion using MLX local inference.
-        
+
         Args:
             messages: Message history
             **opts: Override options
-            
+
         Returns:
             Generated text
-            
+
         Raises:
             ProviderError: On model loading or generation failure
         """
+        # Check circuit breaker before making request
+        try:
+            return self._circuit_breaker.call(self._generate_internal, messages, **opts)
+        except CircuitBreakerOpen as e:
+            raise ProviderError(
+                str(e),
+                kind="circuit_breaker",
+                provider="mlx"
+            )
+
+    def _generate_internal(self, messages: list[dict], **opts: Any) -> str:
+        """Internal generation logic wrapped by circuit breaker"""
         self._load_model()
-        
+
         options = {**self._model_opts, **opts}
-        
+
         # Convert messages to prompt
         prompt = self._messages_to_prompt(messages)
-        
+
         try:
             # MLX generation parameters
             max_tokens = options.get("max_tokens", 8192)
             temperature = options.get("temperature", 0.1)
             top_p = options.get("top_p", 0.9)
-            
+
             # Generate using MLX
             response = self._mlx_generate(
                 model=self._mlx_model,
@@ -103,9 +121,9 @@ class MLXProvider:
                 top_p=top_p,
                 verbose=False
             )
-            
+
             return response
-            
+
         except Exception as e:
             raise ProviderError(
                 f"MLX generation failed: {str(e)}",
@@ -167,4 +185,3 @@ Provide the result in JSON format:"""
                 parts.append(f"Assistant: {content}")
         
         return "\n\n".join(parts) + "\n\nAssistant:"
-

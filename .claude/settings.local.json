@@ -21,7 +21,9 @@
       "Bash(python -c \"\nfrom src.orchestrator.crew_config import ProductionCrew\nfrom src.utils.vector_store import VectorMemory\n\n# Test crew instantiation\ncrew = ProductionCrew(''Test task'')\nprint(f''✅ Crew created: {len(crew.agents)} agents, {len(crew.tasks)} tasks'')\n\n# Test vector memory\nmemory = VectorMemory(''final_test'')\nmemory.save(''test'', ''Final verification test'', {''status'': ''ok''})\nresult = memory.load(''test'')\nprint(f''✅ VectorMemory working: {result}'')\n\nprint(''✅ All components integrated successfully!'')\n\")",
       "Bash(pip show crewai)",
       "Bash(python -c \"import faiss; print(f''FAISS {faiss.__version__} installed''); print(''Available:'', dir(faiss)[:10])\")",
-      "Bash(python -c \"\nfrom src.utils.faiss_store import FAISSVectorStore\n\n# Quick test\nstore = FAISSVectorStore(index_path=''./faiss_quick_test'')\nstore.add([''Test document 1'', ''Test document 2''], [{''type'': ''test''}]*2)\nresults = store.search(''test'', k=1)\nprint(f''✅ FAISS working: {len(results)} results found'')\nprint(f''   Store: {store}'')\n\n# Cleanup\nimport shutil, os\nif os.path.exists(''./faiss_quick_test''):\n    shutil.rmtree(''./faiss_quick_test'')\n\")"
+      "Bash(python -c \"\nfrom src.utils.faiss_store import FAISSVectorStore\n\n# Quick test\nstore = FAISSVectorStore(index_path=''./faiss_quick_test'')\nstore.add([''Test document 1'', ''Test document 2''], [{''type'': ''test''}]*2)\nresults = store.search(''test'', k=1)\nprint(f''✅ FAISS working: {len(results)} results found'')\nprint(f''   Store: {store}'')\n\n# Cleanup\nimport shutil, os\nif os.path.exists(''./faiss_quick_test''):\n    shutil.rmtree(''./faiss_quick_test'')\n\")",
+      "Bash(python -m pytest:*)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

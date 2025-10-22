@@ -3,14 +3,17 @@
 Command-line interface using Typer for running jobs and inspecting results.
 """
 
-import typer
 import json
-import yaml
+import time
 from pathlib import Path
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
+from typing import Any, Dict, Optional
+
+import typer
+import yaml
 from rich import print as rprint
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from src.core.models import JobSpec
 from src.orchestrator.dag_orchestrator import run_orchestrator
@@ -23,6 +26,91 @@ app = typer.Typer(
     add_completion=False
 )
 console = Console()
+
+
+def _summarize_steps_from_events(
+    events: list[dict],
+    pending_from_manifest: Optional[list[str]] = None,
+) -> list[Dict[str, Any]]:
+    """
+    Build step status summary from event stream.
+
+    Args:
+        events: List of event dicts loaded from events.jsonl
+        pending_from_manifest: Optional list of pending steps to include
+
+    Returns:
+        List of step summary dicts sorted by first timestamp
+    """
+    summaries: Dict[str, Dict[str, Any]] = {}
+
+    for event in events:
+        step_id = event.get("step")
+        if not step_id:
+            continue
+
+        entry = summaries.setdefault(
+            step_id,
+            {
+                "step": step_id,
+                "status": "pending",
+                "started_ts": None,
+                "finished_ts": None,
+                "duration_s": None,
+                "provider_calls": 0,
+                "message": "",
+                "first_ts": event.get("ts"),
+            },
+        )
+
+        event_type = event.get("type")
+        if event_type == "step.started":
+            entry["status"] = "running"
+            entry["started_ts"] = event.get("ts")
+        elif event_type == "step.succeeded":
+            entry["status"] = "succeeded"
+            entry["finished_ts"] = event.get("ts")
+            entry["duration_s"] = event.get("duration_s") or event.get("data", {}).get(
+                "duration_s"
+            )
+            entry["provider_calls"] = event.get("provider_calls") or event.get(
+                "data", {}
+            ).get("provider_calls", 0)
+        elif event_type == "step.failed":
+            entry["status"] = "failed"
+            entry["finished_ts"] = event.get("ts")
+            entry["message"] = event.get("message") or event.get("data", {}).get(
+                "message", ""
+            )
+        elif event_type == "step.skipped":
+            entry["status"] = "skipped"
+            entry["finished_ts"] = event.get("ts")
+            entry["message"] = (
+                event.get("data", {}).get("reason") if event.get("data") else ""
+            )
+
+    if pending_from_manifest:
+        for step_id in pending_from_manifest:
+            summaries.setdefault(
+                step_id,
+                {
+                    "step": step_id,
+                    "status": "pending",
+                    "started_ts": None,
+                    "finished_ts": None,
+                    "duration_s": None,
+                    "provider_calls": 0,
+                    "message": "",
+                    "first_ts": None,
+                },
+            )
+
+    return sorted(
+        summaries.values(),
+        key=lambda item: (
+            item["started_ts"] or item["finished_ts"] or item["first_ts"] or item["step"]
+        ),
+    )
 
 
 @app.command()
@@ -43,6 +131,11 @@ def run(
         "--verbose",
         "-v",
         help="Show detailed execution logs"
+    ),
+    resume: bool = typer.Option(
+        False,
+        "--resume",
+        help="Resume a previously started run (skip completed steps)"
     )
 ):
     """
@@ -69,6 +162,8 @@ def run(
         console.print(f"🎯 Task: {job_spec.task_description}")
         console.print(f"🤖 Provider: [yellow]{job_spec.provider}[/yellow]")
         console.print(f"⚡ Concurrency: {job_spec.concurrency}\n")
+        if resume:
+            console.print("[cyan]Resuming run: completed steps will be skipped[/cyan]\n")
         
     except Exception as e:
         console.print(f"[red]❌ Failed to load spec: {e}[/red]")
@@ -76,7 +171,7 @@ def run(
     
     # Execute job
     try:
-        job = run_orchestrator(job_spec)
+        job = run_orchestrator(job_spec, resume=resume)
         
         # Display results
         console.print(f"\n[bold green]✅ Job Complete[/bold green]\n")
@@ -167,26 +262,63 @@ def show(
     )
     console.print(panel)
     
-    # Show steps
-    if manifest.get('steps'):
+    events_path = run_dir / "events.jsonl"
+    event_list = read_events(events_path)
+
+    step_summaries = _summarize_steps_from_events(
+        event_list,
+        pending_from_manifest=manifest.get("pending_steps")
+    )
+
+    if step_summaries:
         console.print("\n[bold]Steps:[/bold]")
         table = Table(show_header=True)
         table.add_column("Step")
         table.add_column("Status")
         table.add_column("Duration")
         table.add_column("Calls")
-        table.add_column("Artifacts")
-        
-        for step_id, step_data in manifest['steps'].items():
-            status_emoji = "✅" if step_data['status'] == 'succeeded' else "❌"
+        table.add_column("Note")
+
+        status_styles = {
+            "succeeded": ("green", "✅"),
+            "failed": ("red", "❌"),
+            "running": ("yellow", "⏳"),
+            "pending": ("white", "…"),
+            "skipped": ("cyan", "⏭"),
+        }
+
+        for summary in step_summaries:
+            status = summary["status"]
+            style, emoji = status_styles.get(status, ("white", "•"))
+            duration = (
+                f"{summary['duration_s']:.1f}s"
+                if summary["duration_s"] is not None
+                else "-"
+            )
+            table.add_row(
+                summary["step"],
+                f"[{style}]{emoji} {status}[/]",
+                duration,
+                str(summary.get("provider_calls", 0) or 0),
+                summary.get("message", "") or "",
+            )
+
+        console.print(table)
+    elif manifest.get("steps"):
+        # Fallback to manifest data if event parsing failed
+        console.print("\n[bold]Steps:[/bold]")
+        table = Table(show_header=True)
+        table.add_column("Step")
+        table.add_column("Status")
+        table.add_column("Duration")
+        table.add_column("Calls")
+        for step_id, step_data in manifest["steps"].items():
             table.add_row(
                 step_id,
-                f"{status_emoji} {step_data['status']}",
-                f"{step_data['duration_s']:.1f}s",
-                str(step_data.get('provider_calls', 0)),
-                str(step_data.get('artifacts', 0))
+                step_data.get("status", "unknown"),
+                f"{step_data.get('duration_s', 0):.1f}s",
+                str(step_data.get("provider_calls", 0)),
             )
-        
         console.print(table)
     
     # Show files if requested
@@ -198,24 +330,23 @@ def show(
             console.print(f"     Size: {file_info['size_bytes']} bytes")
     
     # Show events if requested
-    if events:
-        events_path = run_dir / "events.jsonl"
-        if events_path.exists():
-            event_list = read_events(events_path)
-            
-            console.print(f"\n[bold]Events Timeline ({len(event_list)} events):[/bold]")
-            for event in event_list[:20]:  # Show first 20
-                timestamp = event.get('timestamp', '')[:19]
-                event_type = event.get('type', 'unknown')
-                
-                if event_type.startswith('step.'):
-                    step = event.get('step', '?')
-                    console.print(f"  {timestamp} | {event_type:20} | {step}")
-                else:
-                    console.print(f"  {timestamp} | {event_type:20}")
-            
-            if len(event_list) > 20:
-                console.print(f"  ... and {len(event_list) - 20} more events")
+    if events and event_list:
+        console.print(f"\n[bold]Events Timeline ({len(event_list)} events):[/bold]")
+        for event in event_list[:20]:
+            timestamp = (event.get("ts") or "")[:19]
+            event_type = event.get("type", "unknown")
+            level = event.get("level", "INFO")
+            step = event.get("step")
+
+            if step:
+                console.print(
+                    f"  {timestamp} | [{level}] {event_type:20} | step={step}"
+                )
+            else:
+                console.print(f"  {timestamp} | [{level}] {event_type}")
+
+        if len(event_list) > 20:
+            console.print(f"  ... and {len(event_list) - 20} more events")
     
     # Show failures
     if manifest.get('failures'):
@@ -289,6 +420,108 @@ def list_runs(
     console.print()
 
 
+@app.command()
+def tail(
+    job_id: str = typer.Argument(
+        ...,
+        help="Job ID to tail events for (e.g., job_a1b2c3d4e5f6)"
+    ),
+    event_type: Optional[str] = typer.Option(
+        None,
+        "--type",
+        help="Filter by event type (e.g., step.succeeded)"
+    ),
+    step: Optional[str] = typer.Option(
+        None,
+        "--step",
+        help="Filter by step identifier (e.g., architect)"
+    ),
+    level: Optional[str] = typer.Option(
+        None,
+        "--level",
+        help="Filter by level (INFO, WARN, ERROR)"
+    ),
+    follow: bool = typer.Option(
+        False,
+        "--follow",
+        "-f",
+        help="Follow the event log (like tail -f)"
+    ),
+    interval: float = typer.Option(
+        1.0,
+        "--interval",
+        help="Polling interval in seconds when using --follow"
+    ),
+):
+    """
+    Stream events from a job's events.jsonl file.
+
+    Example:
+        orchestrator tail job_abc123
+        orchestrator tail job_abc123 --type step.succeeded --follow
+    """
+    events_path = Path("runs") / job_id / "events.jsonl"
+    if not events_path.exists():
+        console.print(f"[red]❌ Events log not found for {job_id}[/red]")
+        raise typer.Exit(1)
+
+    def parse_lines(lines: list[str]) -> list[dict]:
+        parsed = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parsed.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return parsed
+
+    def emit(events_batch: list[dict]):
+        for event in filter_events(events_batch, event_type, step, level):
+            timestamp = (event.get("ts") or "")[:19]
+            lvl = event.get("level", "INFO")
+            etype = event.get("type", "unknown")
+            step_id = event.get("step")
+            detail = ""
+
+            if event.get("data"):
+                data_preview = str(event["data"])
+                detail = f" {data_preview}"
+            elif event.get("message"):
+                detail = f" {event['message']}"
+
+            if step_id:
+                console.print(
+                    f"{timestamp} [{lvl}] {etype} | step={step_id}{detail}"
+                )
+            else:
+                console.print(f"{timestamp} [{lvl}] {etype}{detail}")
+
+    try:
+        with open(events_path, "r") as f:
+            initial_lines = f.readlines()
+        emit(parse_lines(initial_lines))
+
+        if not follow:
+            return
+
+        console.print("[cyan]-- follow mode --[/cyan]")
+        position = events_path.stat().st_size
+
+        while True:
+            with open(events_path, "r") as f:
+                f.seek(position)
+                new_lines = f.readlines()
+                position = f.tell()
+
+            if new_lines:
+                emit(parse_lines(new_lines))
+
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Stopped tailing events[/yellow]")
+
+
 if __name__ == "__main__":
     app()
-

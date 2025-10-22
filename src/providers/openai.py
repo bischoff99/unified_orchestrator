@@ -4,6 +4,7 @@ import httpx
 from typing import Any, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from . import ProviderError
+from src.core.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 
 
 class OpenAIProvider:
@@ -19,6 +20,8 @@ class OpenAIProvider:
         api_key: Optional[str] = None,
         timeout_s: int = 120,
         max_retries: int = 3,
+        cb_threshold: int = 5,
+        cb_cooldown_s: float = 60.0,
         **model_opts
     ):
         self._model = model
@@ -33,11 +36,15 @@ class OpenAIProvider:
             if not self._api_key:
                 raise ValueError("OpenAI API key required (set OPENAI_API_KEY)")
         
+        self._timeout = httpx.Timeout(timeout_s, connect=10.0, read=timeout_s, write=timeout_s)
         self._client = httpx.Client(
             base_url="https://api.openai.com/v1",
             headers={"Authorization": f"Bearer {self._api_key}"},
-            timeout=timeout_s
+            timeout=self._timeout
         )
+
+        # Circuit breaker for fault tolerance
+        self._circuit_breaker = CircuitBreaker(threshold=cb_threshold, cooldown=cb_cooldown_s)
     
     @property
     def name(self) -> str:
@@ -60,19 +67,31 @@ class OpenAIProvider:
     ) -> str:
         """
         Generate completion using OpenAI API.
-        
+
         Args:
             messages: OpenAI-format messages
             **opts: Override options
-            
+
         Returns:
             Generated text
-            
+
         Raises:
             ProviderError: On timeout, rate limit, or API error
         """
+        # Check circuit breaker before making request
+        try:
+            return self._circuit_breaker.call(self._generate_internal, messages, **opts)
+        except CircuitBreakerOpen as e:
+            raise ProviderError(
+                str(e),
+                kind="circuit_breaker",
+                provider="openai"
+            )
+
+    def _generate_internal(self, messages: list[dict], **opts: Any) -> str:
+        """Internal generation logic wrapped by circuit breaker"""
         options = {**self._model_opts, **opts}
-        
+
         payload = {
             "model": self._model,
             "messages": messages,
@@ -80,20 +99,20 @@ class OpenAIProvider:
             "max_tokens": options.get("max_tokens", 8192),
             "top_p": options.get("top_p", 0.9),
         }
-        
+
         if options.get("stop"):
             payload["stop"] = options["stop"]
-        
+
         try:
             response = self._client.post(
                 "/chat/completions",
                 json=payload
             )
             response.raise_for_status()
-            
+
             result = response.json()
             return result["choices"][0]["message"]["content"]
-            
+
         except httpx.TimeoutException as e:
             raise ProviderError(
                 f"OpenAI request timed out after {self._timeout_s}s",
@@ -195,4 +214,3 @@ class OpenAIProvider:
         """Cleanup HTTP client"""
         if hasattr(self, '_client'):
             self._client.close()
-

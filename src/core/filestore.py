@@ -6,7 +6,7 @@ All file writes go through this layer to ensure consistency and tracking.
 
 import hashlib
 from pathlib import Path
-from typing import Literal, Union
+from typing import Literal, Union, Optional, TypedDict
 import fcntl
 from contextlib import contextmanager
 
@@ -27,22 +27,31 @@ def compute_sha256(content: Union[bytes, str]) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+class WriteResult(TypedDict):
+    """Result of a safe_write operation"""
+    path: Path
+    sha256: str
+    size_bytes: int
+    wrote: bool
+    reason: Literal["created", "nochange", "overwritten", "appended"]
+
+
 @contextmanager
 def _file_lock(file_path: Path):
     """
     Context manager for exclusive file locking.
-    
+
     Prevents race conditions when multiple processes write to same file.
-    
+
     Args:
         file_path: Path to lock
-        
+
     Yields:
         Lock context (file is exclusively locked)
     """
     lock_path = file_path.with_suffix(file_path.suffix + '.lock')
     lock_file = open(lock_path, 'w')
-    
+
     try:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)  # Exclusive lock
         yield
@@ -77,11 +86,14 @@ class FileStore:
         self,
         path: Union[str, Path],
         content: Union[str, bytes],
-        mode: Literal["create_new", "overwrite", "append"] = "overwrite"
-    ) -> tuple[Path, str, int]:
+        mode: Literal["create_new", "overwrite", "append"] = "overwrite",
+        emitter: Optional['EventEmitter'] = None,
+        job_id: Optional[str] = None,
+        step_id: Optional[str] = None
+    ) -> WriteResult:
         """
         Write content to file with safety guarantees.
-        
+
         Args:
             path: Relative path from base_dir
             content: Content to write (string or bytes)
@@ -89,10 +101,18 @@ class FileStore:
                   - create_new: Fail if file exists
                   - overwrite: Replace existing file
                   - append: Append to existing file
-                  
+            emitter: Optional EventEmitter for logging file.written events
+            job_id: Optional job_id for event emission
+            step_id: Optional step_id for event emission
+
         Returns:
-            Tuple of (full_path, sha256_hash, size_bytes)
-            
+            WriteResult dict with keys:
+                - path: Full path to written file
+                - sha256: Content hash
+                - size_bytes: File size
+                - wrote: Whether data was written (False if content unchanged)
+                - reason: Why file was/wasn't written ("created", "nochange", "overwritten", "appended")
+
         Raises:
             FileExistsError: If mode='create_new' and file exists
             ValueError: If mode is invalid
@@ -100,53 +120,91 @@ class FileStore:
         # Resolve path
         if isinstance(path, str):
             path = Path(path)
-        
+
         full_path = self.base_dir / path
-        
+
         # Convert content to bytes
         if isinstance(content, str):
             content_bytes = content.encode('utf-8')
         else:
             content_bytes = content
-        
+
         # Compute hash before writing
         content_hash = compute_sha256(content_bytes)
-        
+
+        # Track write status
+        wrote = False
+        reason: Literal["created", "nochange", "overwritten", "appended"] = "created"
+
         # Create parent directories
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Lock file for exclusive access
         with _file_lock(full_path):
+            file_existed = full_path.exists()
+
             # Check mode constraints
-            if mode == "create_new" and full_path.exists():
+            if mode == "create_new" and file_existed:
                 # Check if content is same (idempotent)
                 existing_hash = compute_sha256(full_path.read_bytes())
                 if existing_hash == content_hash:
                     # Same content - idempotent, return success
-                    return full_path, content_hash, len(content_bytes)
+                    wrote = False
+                    reason = "nochange"
                 else:
                     raise FileExistsError(
                         f"File exists with different content: {full_path}"
                     )
-            
+
             # Duplicate detection (skip write if content unchanged)
-            if mode == "overwrite" and full_path.exists():
+            elif mode == "overwrite" and file_existed:
                 existing_hash = compute_sha256(full_path.read_bytes())
                 if existing_hash == content_hash:
                     # Content unchanged - skip write
-                    return full_path, content_hash, len(content_bytes)
-            
-            # Perform write
-            if mode == "append":
+                    wrote = False
+                    reason = "nochange"
+                else:
+                    # Content changed - overwrite
+                    with open(full_path, 'wb') as f:
+                        f.write(content_bytes)
+                    wrote = True
+                    reason = "overwritten"
+
+            # Perform write for other cases
+            elif mode == "append":
                 with open(full_path, 'ab') as f:
                     f.write(content_bytes)
-            else:  # create_new or overwrite
+                wrote = True
+                reason = "appended"
+
+            else:  # create_new (file doesn't exist) or overwrite (file doesn't exist)
                 with open(full_path, 'wb') as f:
                     f.write(content_bytes)
-        
-        # Return path, hash, and size
+                wrote = True
+                reason = "created" if not file_existed else "overwritten"
+
+        # Get final size
         final_size = full_path.stat().st_size
-        return full_path, content_hash, final_size
+
+        # Emit file.written event if emitter provided
+        if emitter and job_id and step_id:
+            emitter.file_written(
+                job_id=job_id,
+                step_id=step_id,
+                path=str(path),
+                sha256=content_hash,
+                wrote=wrote,
+                reason=reason
+            )
+
+        # Return WriteResult
+        return WriteResult(
+            path=full_path,
+            sha256=content_hash,
+            size_bytes=final_size,
+            wrote=wrote,
+            reason=reason
+        )
     
     def read(self, path: Union[str, Path]) -> bytes:
         """

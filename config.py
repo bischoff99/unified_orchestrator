@@ -27,6 +27,10 @@ PROVIDER_OPTIONS = {
     "jitter": bool(os.getenv("JITTER", "true").lower() == "true"),
 }
 
+# Circuit breaker configuration for provider adapters
+CB_THRESHOLD = int(os.getenv("CB_THRESHOLD", "5"))
+CB_COOLDOWN_S = float(os.getenv("CB_COOLDOWN_S", "60"))
+
 # ========================================
 # Model Configuration (Backward Compatibility)
 # ========================================
@@ -166,6 +170,8 @@ def get_provider():
             num_thread=OLLAMA_NUM_THREAD,
             num_batch=OLLAMA_NUM_BATCH,
             num_ctx=OLLAMA_NUM_CTX,
+            cb_threshold=CB_THRESHOLD,
+            cb_cooldown_s=CB_COOLDOWN_S,
         )
     elif PROVIDER == "openai":
         from src.providers.openai import OpenAIProvider
@@ -173,6 +179,8 @@ def get_provider():
             model=model,
             timeout_s=PROVIDER_OPTIONS["timeout_s"],
             max_retries=PROVIDER_OPTIONS["max_retries"],
+            cb_threshold=CB_THRESHOLD,
+            cb_cooldown_s=CB_COOLDOWN_S,
         )
     elif PROVIDER == "anthropic":
         from src.providers.anthropic import AnthropicProvider
@@ -180,6 +188,8 @@ def get_provider():
             model=model,
             timeout_s=PROVIDER_OPTIONS["timeout_s"],
             max_retries=PROVIDER_OPTIONS["max_retries"],
+            cb_threshold=CB_THRESHOLD,
+            cb_cooldown_s=CB_COOLDOWN_S,
         )
     elif PROVIDER == "mlx":
         from src.providers.mlx import MLXProvider
@@ -188,7 +198,8 @@ def get_provider():
             model_path=MLX_MODEL_PATH,
             timeout_s=PROVIDER_OPTIONS["timeout_s"],
             max_retries=PROVIDER_OPTIONS["max_retries"],
+            cb_threshold=CB_THRESHOLD,
+            cb_cooldown_s=CB_COOLDOWN_S,
         )
     else:
         raise ValueError(f"Unsupported provider: {PROVIDER}")
-
