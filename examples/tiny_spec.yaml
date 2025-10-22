@@ -1,0 +1,9 @@
+# Tiny Spec Example for DAG Orchestrator
+
+project: tiny_notes_api
+task_description: Create a FastAPI notes app with 2 endpoints (POST /notes, GET /notes) using SQLite database
+provider: ollama
+concurrency: 4
+timeout_s: 900
+output_dir: src/generated
+

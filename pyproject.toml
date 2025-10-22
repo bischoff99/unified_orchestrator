@@ -1,0 +1,96 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unified-orchestrator"
+version = "2.0.0"
+description = "Multi-agent AI orchestration with DAG execution and provider abstraction"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "Unified Orchestrator Team"}
+]
+keywords = ["ai", "orchestration", "multi-agent", "dag", "llm", "crewai"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "pydantic>=2.0",
+    "httpx>=0.25.0",
+    "tenacity>=8.0.0",
+    "typer[all]>=0.9.0",
+    "rich>=13.0.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    "crewai>=0.80.0",
+    "langchain>=0.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-xdist>=3.3.0",
+    "pytest-asyncio>=0.21.0",
+    "hypothesis>=6.82.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+mlx = [
+    "mlx-lm>=0.1.0",
+]
+
+all = [
+    "unified-orchestrator[dev,mlx]",
+]
+
+[project.scripts]
+orchestrator = "src.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/bischoff99/unified_orchestrator"
+Repository = "https://github.com/bischoff99/unified_orchestrator"
+Issues = "https://github.com/bischoff99/unified_orchestrator/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --strict-markers --tb=short"
+asyncio_mode = "auto"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]  # Line too long (handled by black)
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["*/tests/*", "*/venv/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+

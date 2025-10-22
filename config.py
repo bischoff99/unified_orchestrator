@@ -5,7 +5,30 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ========================================
-# Model Configuration
+# Provider Configuration (New Architecture)
+# ========================================
+PROVIDER = os.getenv("PROVIDER", "ollama").lower()  # ollama, openai, anthropic, mlx
+
+# Provider-specific models
+PROVIDER_MODELS = {
+    "ollama": os.getenv("OLLAMA_MODEL", "codellama:13b-instruct"),
+    "openai": os.getenv("OPENAI_MODEL", "gpt-4"),
+    "anthropic": os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
+    "mlx": os.getenv("MLX_MODEL", "mlx-community/Llama-3.1-8B-Instruct-4bit"),
+}
+
+# Common provider options (centralized)
+PROVIDER_OPTIONS = {
+    "temperature": float(os.getenv("TEMPERATURE", "0.1")),
+    "max_tokens": int(os.getenv("MAX_TOKENS", "8192")),
+    "timeout_s": int(os.getenv("TIMEOUT_S", "120")),
+    "max_retries": int(os.getenv("MAX_RETRIES", "3")),
+    "top_p": float(os.getenv("TOP_P", "0.9")),
+    "jitter": bool(os.getenv("JITTER", "true").lower() == "true"),
+}
+
+# ========================================
+# Model Configuration (Backward Compatibility)
 # ========================================
 MODEL_CONFIG = {
     "model_name": os.getenv("MODEL_NAME", "codellama:13b-instruct"),  # Better tool calling than llama3.1
@@ -111,4 +134,61 @@ def get_llm_backend():
         return LLM(model=f"huggingface/{HF_MODEL}", api_key=HF_TOKEN)
     else:
         raise ValueError(f"Unsupported backend: {MODEL_BACKEND}")
+
+
+# ========================================
+# Provider Factory (New Architecture)
+# ========================================
+def get_provider():
+    """
+    Get configured LLM provider instance.
+    
+    Returns provider adapter based on PROVIDER env var with
+    centralized timeout/retry settings.
+    
+    Returns:
+        Provider instance (Ollama, OpenAI, Anthropic, or MLX)
+        
+    Raises:
+        ValueError: If provider not supported
+    """
+    model = PROVIDER_MODELS.get(PROVIDER)
+    if not model:
+        raise ValueError(f"Unsupported provider: {PROVIDER}")
+    
+    if PROVIDER == "ollama":
+        from src.providers.ollama import OllamaProvider
+        return OllamaProvider(
+            model=model,
+            base_url=OLLAMA_BASE_URL,
+            timeout_s=PROVIDER_OPTIONS["timeout_s"],
+            max_retries=PROVIDER_OPTIONS["max_retries"],
+            num_thread=OLLAMA_NUM_THREAD,
+            num_batch=OLLAMA_NUM_BATCH,
+            num_ctx=OLLAMA_NUM_CTX,
+        )
+    elif PROVIDER == "openai":
+        from src.providers.openai import OpenAIProvider
+        return OpenAIProvider(
+            model=model,
+            timeout_s=PROVIDER_OPTIONS["timeout_s"],
+            max_retries=PROVIDER_OPTIONS["max_retries"],
+        )
+    elif PROVIDER == "anthropic":
+        from src.providers.anthropic import AnthropicProvider
+        return AnthropicProvider(
+            model=model,
+            timeout_s=PROVIDER_OPTIONS["timeout_s"],
+            max_retries=PROVIDER_OPTIONS["max_retries"],
+        )
+    elif PROVIDER == "mlx":
+        from src.providers.mlx import MLXProvider
+        return MLXProvider(
+            model=model,
+            model_path=MLX_MODEL_PATH,
+            timeout_s=PROVIDER_OPTIONS["timeout_s"],
+            max_retries=PROVIDER_OPTIONS["max_retries"],
+        )
+    else:
+        raise ValueError(f"Unsupported provider: {PROVIDER}")
 
