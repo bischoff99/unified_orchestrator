@@ -70,6 +70,8 @@ class RunManager:
             "files": [],
             "artifacts": [],
             "steps": {},
+            "completed_steps": [],  # For resume functionality
+            "pending_steps": [],    # For resume functionality
         }
         
         self._write_manifest(manifest)
@@ -79,7 +81,9 @@ class RunManager:
     def update_manifest(
         self,
         job: Job,
-        artifacts: Optional[list[Artifact]] = None
+        artifacts: Optional[list[Artifact]] = None,
+        completed_steps: Optional[list[str]] = None,
+        pending_steps: Optional[list[str]] = None
     ):
         """
         Update manifest.json with current job state.
@@ -87,6 +91,8 @@ class RunManager:
         Args:
             job: Current job instance
             artifacts: Optional list of artifacts to add
+            completed_steps: List of completed step IDs (for resume)
+            pending_steps: List of pending step IDs (for resume)
         """
         manifest = {
             "job_id": job.job_id,
@@ -125,6 +131,8 @@ class RunManager:
                 }
                 for f in job.failures
             ] if job.failures else [],
+            "completed_steps": completed_steps or [],
+            "pending_steps": pending_steps or [],
         }
         
         self._write_manifest(manifest)

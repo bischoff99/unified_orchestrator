@@ -6,6 +6,7 @@ Architecture: architect → parallel{builder, docs} → qa
 
 import asyncio
 import uuid
+import hashlib
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -16,6 +17,7 @@ from src.core.dag import DAG, DAGNode, run_dag
 from src.core.events import EventEmitter
 from src.core.manifest import RunManager
 from src.core.filestore import FileStore
+from src.core.cache import compute_cache_key, cache_path, read_cache, write_cache
 
 
 class DAGOrchestrator:
@@ -131,6 +133,75 @@ class DAGOrchestrator:
         
         return job
     
+    async def _call_provider_with_cache(
+        self,
+        step_id: str,
+        messages: list[dict],
+        context: dict,
+        inputs: dict
+    ) -> tuple[str, bool]:
+        """
+        Call provider with deterministic caching.
+        
+        Args:
+            step_id: Step identifier (e.g., 'architect', 'builder')
+            messages: Messages to send to provider
+            context: Job context with provider, events, etc.
+            inputs: Input data for cache key computation
+            
+        Returns:
+            Tuple of (response, cache_hit)
+        """
+        provider = context["provider"]
+        events = context["events"]
+        job_id = context["job_id"]
+        
+        # Compute cache key
+        provider_info = {
+            "name": provider.name,
+            "model": getattr(provider, "model", "unknown"),
+            "opts": PROVIDER_OPTIONS,
+        }
+        
+        cache_key = compute_cache_key(
+            provider=provider_info,
+            step_id=step_id,
+            inputs=inputs
+        )
+        
+        # Check cache
+        cache_file = cache_path(job_id, cache_key)
+        cached_data = read_cache(cache_file)
+        
+        if cached_data:
+            # Cache hit
+            events.cache_hit(job_id, step_id, cache_key)
+            return cached_data.get("response", ""), True
+        
+        # Cache miss - call provider
+        events.cache_miss(job_id, step_id, cache_key)
+        
+        start = datetime.utcnow()
+        response = provider.generate(messages, **PROVIDER_OPTIONS)
+        duration = (datetime.utcnow() - start).total_seconds()
+        
+        # Log provider call
+        events.provider_call(
+            job_id,
+            step_id,
+            provider.name,
+            duration
+        )
+        
+        # Cache response
+        write_cache(cache_file, {
+            "response": response,
+            "cached_at": datetime.utcnow().isoformat(),
+            "cache_key": cache_key,
+        })
+        
+        return response, False
+    
     def _build_dag(self) -> DAG:
         """
         Build the execution DAG.
@@ -195,7 +266,6 @@ class DAGOrchestrator:
         Returns:
             Architecture design as dict
         """
-        provider = context["provider"]
         spec = context["spec"]
         
         messages = [
@@ -210,21 +280,18 @@ class DAGOrchestrator:
             }
         ]
         
-        start = datetime.utcnow()
-        response = provider.generate(messages, **PROVIDER_OPTIONS)
-        duration = (datetime.utcnow() - start).total_seconds()
-        
-        # Log provider call
-        context["events"].provider_call(
-            context["job_id"],
-            "architect",
-            provider.name,
-            duration
+        # Call provider with caching
+        response, cache_hit = await self._call_provider_with_cache(
+            step_id="architect",
+            messages=messages,
+            context=context,
+            inputs={"task": spec.task_description}
         )
         
         return {
             "architecture": response,
-            "provider_calls": 1
+            "provider_calls": 0 if cache_hit else 1,
+            "cache_hit": cache_hit
         }
     
     async def _step_builder(
@@ -237,7 +304,6 @@ class DAGOrchestrator:
         
         Runs in parallel with docs step.
         """
-        provider = context["provider"]
         spec = context["spec"]
         filestore = context["filestore"]
         
@@ -260,9 +326,13 @@ Include: FastAPI, SQLAlchemy, Pydantic models, endpoints, error handling."""
             }
         ]
         
-        start = datetime.utcnow()
-        code = provider.generate(messages, **PROVIDER_OPTIONS)
-        duration = (datetime.utcnow() - start).total_seconds()
+        # Call provider with caching
+        code, cache_hit = await self._call_provider_with_cache(
+            step_id="builder",
+            messages=messages,
+            context=context,
+            inputs={"task": spec.task_description, "architecture": architecture[:500]}  # Truncate for key
+        )
         
         # Write generated code
         main_path, sha256, size = filestore.safe_write(
@@ -287,18 +357,12 @@ Include: FastAPI, SQLAlchemy, Pydantic models, endpoints, error handling."""
             artifact.size_bytes
         )
         
-        context["events"].provider_call(
-            context["job_id"],
-            "builder",
-            provider.name,
-            duration
-        )
-        
         return {
             "files_created": 1,
             "main_file": str(main_path),
             "artifact": artifact,
-            "provider_calls": 1
+            "provider_calls": 0 if cache_hit else 1,
+            "cache_hit": cache_hit
         }
     
     async def _step_docs(
@@ -311,7 +375,6 @@ Include: FastAPI, SQLAlchemy, Pydantic models, endpoints, error handling."""
         
         Runs in parallel with builder step.
         """
-        provider = context["provider"]
         spec = context["spec"]
         filestore = context["filestore"]
         
@@ -330,9 +393,13 @@ Include: FastAPI, SQLAlchemy, Pydantic models, endpoints, error handling."""
             }
         ]
         
-        start = datetime.utcnow()
-        readme = provider.generate(messages, **PROVIDER_OPTIONS)
-        duration = (datetime.utcnow() - start).total_seconds()
+        # Call provider with caching
+        readme, cache_hit = await self._call_provider_with_cache(
+            step_id="docs",
+            messages=messages,
+            context=context,
+            inputs={"task": spec.task_description, "architecture": architecture[:500]}
+        )
         
         # Write README
         readme_path, sha256, size = filestore.safe_write(
@@ -356,18 +423,12 @@ Include: FastAPI, SQLAlchemy, Pydantic models, endpoints, error handling."""
             artifact.size_bytes
         )
         
-        context["events"].provider_call(
-            context["job_id"],
-            "docs",
-            provider.name,
-            duration
-        )
-        
         return {
             "files_created": 1,
             "readme_file": str(readme_path),
             "artifact": artifact,
-            "provider_calls": 1
+            "provider_calls": 0 if cache_hit else 1,
+            "cache_hit": cache_hit
         }
     
     async def _step_qa(
@@ -380,9 +441,6 @@ Include: FastAPI, SQLAlchemy, Pydantic models, endpoints, error handling."""
         
         Depends on both builder and docs completing.
         """
-        provider = context["provider"]
-        filestore = context["filestore"]
-        
         # Get outputs from builder
         builder_output = dep_results["builder"].output
         main_file = builder_output.get("main_file", "")
@@ -410,21 +468,20 @@ Include: FastAPI, SQLAlchemy, Pydantic models, endpoints, error handling."""
             }
         ]
         
-        start = datetime.utcnow()
-        qa_report = provider.generate(messages, **PROVIDER_OPTIONS)
-        duration = (datetime.utcnow() - start).total_seconds()
-        
-        context["events"].provider_call(
-            context["job_id"],
-            "qa",
-            provider.name,
-            duration
+        # Call provider with caching (use code hash for cache key)
+        code_hash = hashlib.sha256(code.encode()).hexdigest()[:16]
+        qa_report, cache_hit = await self._call_provider_with_cache(
+            step_id="qa",
+            messages=messages,
+            context=context,
+            inputs={"code_hash": code_hash}
         )
         
         return {
             "qa_report": qa_report,
             "code_reviewed": bool(code and code != "No code generated"),
-            "provider_calls": 1
+            "provider_calls": 0 if cache_hit else 1,
+            "cache_hit": cache_hit
         }
 
 

@@ -7,8 +7,30 @@ Each job gets its own events.jsonl file in runs/<job_id>/events.jsonl
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, TypedDict, NotRequired
 from contextlib import contextmanager
+
+
+class Event(TypedDict):
+    """
+    Typed event structure for all events in the system.
+    
+    All events must include:
+    - ts: ISO8601 timestamp
+    - level: Event severity (INFO/WARN/ERROR)
+    - job_id: Job identifier
+    - type: Event type (e.g., 'job.started', 'step.succeeded')
+    
+    Optional fields:
+    - step: Step identifier for step-specific events
+    - data: Additional event-specific data
+    """
+    ts: str  # ISO8601 timestamp
+    level: Literal["INFO", "WARN", "ERROR"]
+    job_id: str
+    type: str  # e.g., "step.started", "llm.request", "cache.hit"
+    step: NotRequired[str]
+    data: NotRequired[dict[str, Any]]
 
 
 class EventEmitter:
@@ -36,12 +58,22 @@ class EventEmitter:
         """
         Emit a typed event to the log.
         
+        Automatically adds ISO8601 timestamp and defaults level to INFO.
+        
         Args:
-            event: Event dict with 'type' and other fields
+            event: Event dict conforming to Event TypedDict structure
         """
-        # Add timestamp if not present
-        if 'timestamp' not in event:
-            event['timestamp'] = datetime.utcnow().isoformat()
+        # Add timestamp if not present (use 'ts' for v2.1)
+        if 'ts' not in event:
+            event['ts'] = datetime.utcnow().isoformat() + 'Z'
+        
+        # Add default level if not present
+        if 'level' not in event:
+            event['level'] = 'INFO'
+        
+        # Validate required fields
+        if 'type' not in event or 'job_id' not in event:
+            raise ValueError("Event must have 'type' and 'job_id' fields")
         
         # Write as ND-JSON
         json_line = json.dumps(event, default=str)
@@ -157,6 +189,109 @@ class EventEmitter:
             'size_bytes': size_bytes,
         })
     
+    def llm_request(
+        self,
+        job_id: str,
+        step_id: str,
+        provider: str,
+        model: str,
+        prompt_tokens: int = 0
+    ):
+        """Emit llm.request event"""
+        self.emit({
+            'type': 'llm.request',
+            'job_id': job_id,
+            'step': step_id,
+            'level': 'INFO',
+            'data': {
+                'provider': provider,
+                'model': model,
+                'prompt_tokens': prompt_tokens,
+            }
+        })
+    
+    def llm_response(
+        self,
+        job_id: str,
+        step_id: str,
+        provider: str,
+        duration_s: float,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        success: bool = True
+    ):
+        """Emit llm.response event"""
+        self.emit({
+            'type': 'llm.response',
+            'job_id': job_id,
+            'step': step_id,
+            'level': 'INFO' if success else 'WARN',
+            'data': {
+                'provider': provider,
+                'duration_s': duration_s,
+                'tokens_in': tokens_in,
+                'tokens_out': tokens_out,
+                'success': success,
+            }
+        })
+    
+    def file_written(
+        self,
+        job_id: str,
+        step_id: str,
+        path: str,
+        sha256: str,
+        wrote: bool,
+        reason: Literal["created", "nochange", "overwritten", "appended"]
+    ):
+        """Emit file.written event"""
+        self.emit({
+            'type': 'file.written',
+            'job_id': job_id,
+            'step': step_id,
+            'level': 'INFO',
+            'data': {
+                'path': path,
+                'sha256': sha256,
+                'wrote': wrote,
+                'reason': reason,
+            }
+        })
+    
+    def cache_hit(
+        self,
+        job_id: str,
+        step_id: str,
+        cache_key: str
+    ):
+        """Emit cache.hit event"""
+        self.emit({
+            'type': 'cache.hit',
+            'job_id': job_id,
+            'step': step_id,
+            'level': 'INFO',
+            'data': {
+                'cache_key': cache_key,
+            }
+        })
+    
+    def cache_miss(
+        self,
+        job_id: str,
+        step_id: str,
+        cache_key: str
+    ):
+        """Emit cache.miss event"""
+        self.emit({
+            'type': 'cache.miss',
+            'job_id': job_id,
+            'step': step_id,
+            'level': 'INFO',
+            'data': {
+                'cache_key': cache_key,
+            }
+        })
+    
     def close(self):
         """Close the log file"""
         if hasattr(self, '_log_file') and self._log_file:
@@ -211,15 +346,17 @@ def read_events(log_path: Path) -> list[dict]:
 def filter_events(
     events: list[dict],
     event_type: Optional[str] = None,
-    step_id: Optional[str] = None
+    step_id: Optional[str] = None,
+    level: Optional[str] = None
 ) -> list[dict]:
     """
-    Filter events by type and/or step.
+    Filter events by type, step, and/or level.
     
     Args:
         events: List of event dicts
         event_type: Filter by event type (e.g., 'step.started')
         step_id: Filter by step identifier
+        level: Filter by severity level (INFO/WARN/ERROR)
         
     Returns:
         Filtered list of events
@@ -231,6 +368,9 @@ def filter_events(
     
     if step_id:
         filtered = [e for e in filtered if e.get('step') == step_id]
+    
+    if level:
+        filtered = [e for e in filtered if e.get('level') == level]
     
     return filtered
 

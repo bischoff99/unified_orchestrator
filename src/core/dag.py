@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .models import StepResult, Failure
-from .events import EventEmitter
+from .events import EventEmitter, read_events
 
 
 @dataclass
@@ -106,13 +106,42 @@ class DAG:
         return ready
 
 
+def read_completed_steps(events_path: Path) -> set[str]:
+    """
+    Read completed steps from events.jsonl.
+    
+    Scans event log for step.succeeded events to determine which
+    steps have already completed successfully.
+    
+    Args:
+        events_path: Path to events.jsonl file
+        
+    Returns:
+        Set of completed step IDs
+    """
+    if not events_path.exists():
+        return set()
+    
+    completed = set()
+    events = read_events(events_path)
+    
+    for event in events:
+        if event.get('type') == 'step.succeeded':
+            step_id = event.get('step')
+            if step_id:
+                completed.add(step_id)
+    
+    return completed
+
+
 async def run_dag(
     dag: DAG,
     job_id: str,
     context: dict[str, Any],
     events: EventEmitter,
     concurrency: int = 4,
-    timeout_s: Optional[int] = None
+    timeout_s: Optional[int] = None,
+    resume: bool = False
 ) -> dict[str, StepResult]:
     """
     Execute DAG with controlled concurrency.
@@ -127,6 +156,7 @@ async def run_dag(
         events: Event emitter for logging
         concurrency: Maximum concurrent tasks
         timeout_s: Overall timeout for entire DAG
+        resume: If True, skip steps that already succeeded (from events.jsonl)
         
     Returns:
         Dict mapping step_id to StepResult
@@ -139,6 +169,34 @@ async def run_dag(
     
     completed: set[str] = set()
     results: dict[str, StepResult] = {}
+    
+    # Resume functionality: skip already completed steps
+    if resume:
+        # Read completed steps from events.jsonl
+        events_path = Path(f"runs/{job_id}/events.jsonl")
+        previously_completed = read_completed_steps(events_path)
+        
+        # Mark these steps as complete and create placeholder results
+        for step_id in previously_completed:
+            if step_id in dag.nodes:
+                completed.add(step_id)
+                # Create a placeholder result for resumed steps
+                results[step_id] = StepResult(
+                    step_id=step_id,
+                    status="succeeded",
+                    output={"resumed": True, "message": "Step skipped (already completed)"},
+                    duration_s=0.0,
+                    started_at=datetime.utcnow(),
+                    finished_at=datetime.utcnow(),
+                )
+                # Emit event indicating step was skipped
+                events.emit({
+                    'type': 'step.skipped',
+                    'job_id': job_id,
+                    'step': step_id,
+                    'level': 'INFO',
+                    'data': {'reason': 'resume'},
+                })
     semaphore = asyncio.Semaphore(concurrency)
     
     async def execute_node(node: DAGNode) -> StepResult:
