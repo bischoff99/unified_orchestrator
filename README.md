@@ -6,8 +6,48 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**Version:** 2.0.0 (Major Architectural Refactor)  
-**Status:** ✅ Production Ready - DAG-based with Provider Abstraction
+**Version:** 2.1.0  
+**Status:** ✅ Production Ready - DAG + Events + Resume + Cache
+
+---
+
+## ⭐ What's New in v2.1
+
+### 🔄 Resume-from-Failure
+Stop worrying about restarts—resume exactly where you left off:
+```bash
+orchestrator run --spec job.yaml --resume
+# Skips completed steps, continues from failure point
+```
+
+### ⚡ Deterministic Caching
+Second runs with identical inputs are **instant** (no LLM calls):
+```bash
+# First run: 35s (cache miss)
+orchestrator run --spec job.yaml
+
+# Second run: 2s (cache hit, 95% faster!)
+orchestrator run --spec job.yaml
+```
+
+### 📊 Comprehensive Observability
+Every operation emits structured events to `events.jsonl`:
+```json
+{"ts": "2025-10-22T...", "type": "cache.hit", "step": "architect"}
+{"ts": "2025-10-22T...", "type": "llm.response", "data": {"duration_s": 3.2}}
+{"ts": "2025-10-22T...", "type": "file.written", "data": {"wrote": true}}
+```
+
+### 🔍 Enhanced CLI
+```bash
+# Stream live events with filters
+orchestrator tail <job_id> --type llm.response --follow
+
+# Show detailed job status
+orchestrator show <job_id>
+```
+
+**[See Full Changelog →](CHANGELOG.md) | [Migration Guide →](docs/MIGRATION_v1_to_v2.md)**
 
 ---
 
@@ -22,6 +62,9 @@ pip install -e .
 ```bash
 # Create a tiny spec file or use the example
 orchestrator run examples/tiny_spec.yaml
+
+# Resume a partially completed run
+orchestrator run examples/tiny_spec.yaml --resume
 ```
 
 ### Inspect Results
@@ -34,16 +77,23 @@ ls runs/<job_id>/outputs/
 
 # Check events timeline
 orchestrator show <job_id> --events
+
+# Stream live events (CTRL+C to stop)
+orchestrator tail <job_id> --follow
 ```
 
 ---
 
-## 🎉 Latest: Version 2.0 - DAG Architecture!
+## 🎉 Latest: Version 2.1 - Resumable DAG & Live Telemetry
 
-**Status:** ✅ All critical bugs fixed  
-**Tool Usage:** 100% (was 0%)  
-**Code Quality:** 85/100  
-**Grade:** A- (90/100)
+**Highlights**
+- ♻️ `orchestrator run --resume` restarts only the remaining steps in a job.
+- 📡 `orchestrator tail <job_id>` streams events with `--type`, `--step`,
+  `--level`, and `--follow` options.
+- 🛡️ Provider adapters now include circuit breaker protection and explicit
+  HTTP timeouts for Ollama, OpenAI, and Anthropic.
+- 🧪 CI caches pip wheels, enforces golden fixtures, and uploads `runs/`
+  artifacts when a smoke test fails.
 
 [See Phase 1 Results →](PHASE1_COMPLETE.md)
 
@@ -109,6 +159,9 @@ cat src/generated/*/main.py
 - ✅ **Run Metadata:** Full manifest with file hashes and timings
 - ✅ **LLM Caching:** Content-addressed cache avoids duplicate calls
 - ✅ **Type Safety:** Pydantic models with validation boundaries
+- ✅ **Resume Support:** Skip completed steps using `--resume` and cached results
+- ✅ **Real-time Telemetry:** Tail events live with granular filters
+- ✅ **Circuit Breaker Safety:** Configurable thresholds guard providers
 
 ### Provider Abstraction
 
@@ -147,6 +200,13 @@ runs/<job_id>/
 ├── logs/              ← Step execution logs
 ├── artifacts/         ← Binary artifacts
 └── .cache/            ← LLM response cache (content-addressed)
+```
+
+Before long-running jobs, copy `.env.example` to `.env` and adjust provider and
+circuit breaker values:
+
+```bash
+cp .env.example .env
 ```
 
 **manifest.json Example:**
