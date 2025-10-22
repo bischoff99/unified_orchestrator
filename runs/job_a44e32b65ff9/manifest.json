@@ -1,0 +1,45 @@
+{
+  "job_id": "job_a44e32b65ff9",
+  "started_at": "2025-10-22T10:47:01.679742",
+  "finished_at": "2025-10-22T10:48:08.602987",
+  "project": "tiny_notes_api",
+  "task_description": "Create a FastAPI notes app with 2 endpoints (POST /notes, GET /notes) using SQLite database",
+  "provider": "ollama",
+  "status": "succeeded",
+  "duration_s": 66.923245,
+  "files": [],
+  "steps": {
+    "architect": {
+      "status": "succeeded",
+      "duration_s": 17.259973,
+      "provider_calls": 0,
+      "artifacts": 0
+    },
+    "builder": {
+      "status": "succeeded",
+      "duration_s": 13.158298,
+      "provider_calls": 0,
+      "artifacts": 0
+    },
+    "docs": {
+      "status": "succeeded",
+      "duration_s": 27.41203,
+      "provider_calls": 0,
+      "artifacts": 0
+    },
+    "qa": {
+      "status": "succeeded",
+      "duration_s": 9.038294,
+      "provider_calls": 0,
+      "artifacts": 0
+    }
+  },
+  "failures": [],
+  "completed_steps": [
+    "architect",
+    "builder",
+    "docs",
+    "qa"
+  ],
+  "pending_steps": []
+}

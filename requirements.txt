@@ -64,3 +64,6 @@ aif360>=0.5.0                             # Fairness metrics
 torchinfo>=1.8.0                          # Model architecture summary
 prometheus-client>=0.19.0                 # Metrics collection
 transformers>=4.35.0                      # For safety models
+pyperclip>=1.8.2
+playwright>=1.47.0
+pytest-playwright>=0.5.0

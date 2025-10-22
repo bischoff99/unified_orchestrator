@@ -1,0 +1,226 @@
+# Warp Pro Workflows for unified_orchestrator
+# Save this file to: ~/.warp/workflows/unified-orchestrator.yaml
+
+name: Unified Orchestrator
+description: Multi-agent code generation workflows with premium stack integration
+
+workflows:
+  # Quick Generate
+  - name: Quick Generate
+    description: Fast code generation with Ollama
+    command: |
+      cd ~/Developer/projects/unified_orchestrator
+      source venv/bin/activate
+      
+      echo "🚀 Running orchestrator..."
+      orchestrator run examples/tiny_spec.yaml
+      
+      LATEST=$(ls -t runs/ | head -1)
+      echo ""
+      echo "✅ Generated in: runs/$LATEST"
+      echo "📂 Opening in Cursor..."
+      cursor "runs/$LATEST/outputs"
+    tags: [orchestrator, generate, quick]
+  
+  # Research & Generate
+  - name: Research & Generate
+    description: Research in Perplexity, then generate code
+    command: |
+      echo "📚 Step 1: Research"
+      echo "Opening Perplexity Max..."
+      open "https://www.perplexity.ai/?q=${TOPIC}"
+      
+      echo ""
+      echo "📋 Instructions:"
+      echo "  1. Research ${TOPIC} in Perplexity"
+      echo "  2. Copy comprehensive answer (Cmd+A, Cmd+C)"
+      echo "  3. Press Enter to continue..."
+      read
+      
+      cd ~/Developer/projects/unified_orchestrator
+      source venv/bin/activate
+      
+      echo ""
+      echo "💾 Step 2: Ingest Research"
+      python scripts/ingest_from_clipboard.py --collection research --metadata "source=perplexity,topic=${TOPIC}"
+      
+      echo ""
+      echo "🚀 Step 3: Generate Code"
+      orchestrator run ${SPEC}
+      
+      LATEST=$(ls -t runs/ | head -1)
+      echo ""
+      echo "✅ Complete! Opening in Cursor..."
+      cursor "runs/$LATEST/outputs"
+    variables:
+      - name: TOPIC
+        description: Research topic
+        default: "FastAPI best practices"
+      - name: SPEC
+        description: Spec file
+        default: "examples/tiny_spec.yaml"
+    tags: [orchestrator, research, perplexity]
+  
+  # Full Pipeline
+  - name: Full Automation Pipeline
+    description: Research → Generate → Review → Deploy (all integrations)
+    command: |
+      cd ~/Developer/projects/unified_orchestrator
+      source venv/bin/activate
+      
+      echo "🎯 FULL AUTOMATION PIPELINE"
+      echo "=" * 60
+      echo ""
+      
+      # Step 1: Research
+      echo "📚 Step 1: Research in Perplexity"
+      open "https://www.perplexity.ai/?q=${TOPIC}"
+      echo "Copy answer, then press Enter..."
+      read
+      python scripts/ingest_from_clipboard.py --collection research
+      
+      # Step 2: Generate
+      echo ""
+      echo "🚀 Step 2: Generate Code"
+      orchestrator run ${SPEC}
+      LATEST=$(ls -t runs/ | head -1)
+      
+      # Step 3: Review
+      echo ""
+      echo "💻 Step 3: Open in Cursor"
+      cursor "runs/$LATEST/outputs"
+      
+      # Step 4: Claude Review
+      echo ""
+      echo "🤖 Step 4: Prepare Claude Review"
+      cat runs/$LATEST/outputs/**/*.py | pbcopy
+      open "https://claude.ai/new"
+      echo "Code copied to clipboard - paste in Claude for review"
+      echo "Press Enter when ready to continue..."
+      read
+      
+      # Step 5: Automate
+      echo ""
+      echo "🔗 Step 5: Comet Integrations"
+      python scripts/comet_integrations.py full-automation "$LATEST"
+      
+      echo ""
+      echo "=" * 60
+      echo "✅ PIPELINE COMPLETE!"
+      echo ""
+      echo "Created:"
+      echo "  • Code in Cursor"
+      echo "  • GitHub repository"
+      echo "  • Linear ticket"
+      echo "  • Notion documentation"
+      echo "  • Slack notification"
+    variables:
+      - name: TOPIC
+        description: Research topic
+        default: "FastAPI WebSocket patterns"
+      - name: SPEC
+        description: Spec file
+        default: "examples/tiny_spec.yaml"
+    tags: [orchestrator, automation, full-stack]
+  
+  # Query Memory
+  - name: Query Vector Memory
+    description: Search agent memory semantically
+    command: |
+      cd ~/Developer/projects/unified_orchestrator
+      source venv/bin/activate
+      
+      echo "🧠 Searching vector memory for: ${QUERY}"
+      echo ""
+      
+      python -c "
+from src.utils.vector_store import VectorMemory
+m = VectorMemory()
+results = m.query('${QUERY}', k=5)
+print(f'Found {len(results)} results:\n')
+for i, r in enumerate(results, 1):
+    print(f'{i}. ID: {r[\"id\"]}')
+    print(f'   Preview: {r[\"document\"][:300]}...')
+    print(f'   Metadata: {r[\"metadata\"]}')
+    print()
+      "
+    variables:
+      - name: QUERY
+        description: Search query
+        default: "FastAPI authentication"
+    tags: [orchestrator, memory, search]
+  
+  # Show Collections
+  - name: Show Chroma Collections
+    description: List all ChromaDB collections and stats
+    command: |
+      cd ~/Developer/projects/unified_orchestrator
+      source venv/bin/activate
+      
+      echo "📊 ChromaDB Collections"
+      echo "=" * 60
+      echo ""
+      
+      python -c "
+import chromadb
+client = chromadb.PersistentClient(path='./memory')
+collections = client.list_collections()
+
+if not collections:
+    print('No collections found')
+else:
+    for coll in collections:
+        count = coll.count()
+        print(f'📦 {coll.name}')
+        print(f'   Documents: {count}')
+        print(f'   Metadata: {coll.metadata}')
+        print()
+      "
+    tags: [orchestrator, chroma, status]
+  
+  # Open Documentation
+  - name: Open Project Docs
+    description: Open documentation in browser and Cursor
+    command: |
+      cd ~/Developer/projects/unified_orchestrator
+      
+      echo "📚 Opening documentation..."
+      echo ""
+      
+      # Open README in browser
+      open "https://github.com/bischoff99/unified_orchestrator/blob/main/README.md"
+      
+      # Open docs in Cursor
+      cursor docs/
+      
+      echo "✅ Opened:"
+      echo "  • GitHub README"
+      echo "  • docs/ in Cursor"
+    tags: [orchestrator, docs]
+  
+  # Deploy to GitHub
+  - name: Deploy Latest to GitHub
+    description: Create GitHub repo and push latest generated code
+    command: |
+      cd ~/Developer/projects/unified_orchestrator
+      source venv/bin/activate
+      
+      LATEST=$(ls -t runs/ | head -1)
+      
+      echo "📦 Deploying run: $LATEST"
+      echo ""
+      
+      # Run Comet automation
+      python scripts/comet_integrations.py full-automation "$LATEST"
+      
+      echo ""
+      echo "✅ Deployment complete!"
+    tags: [orchestrator, github, deploy]
+
+# Warp AI will recognize these commands
+# Type natural language like:
+#   - "run orchestrator"
+#   - "show latest run"
+#   - "query memory for fastapi"
+# And Warp will suggest the appropriate workflow
+
