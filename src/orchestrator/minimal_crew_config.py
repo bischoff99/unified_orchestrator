@@ -7,6 +7,7 @@ from src.tools.production_tools import (
     test_code, create_project_structure, 
     generate_requirements, get_current_date, list_directory
 )
+from src.utils.code_scorer import score_code_tool
 
 class MinimalCrew:
     """
@@ -39,98 +40,31 @@ class MinimalCrew:
         return Agent(
             role="Senior Full-Stack Implementation Engineer",
             goal="Create COMPLETE, RUNNABLE, production-quality code with ALL imports and endpoints fully implemented",
-            backstory="""You are a SENIOR full-stack engineer with 10+ years of experience building production APIs.
+            backstory="""You are a senior full-stack engineer.
 
-YOUR CODE MUST BE COMPLETE AND RUNNABLE. This means:
-1. ALL imports included (Column, Integer, String, DateTime, HTTPException, status, etc.)
-2. ALL API endpoints FULLY implemented with actual logic (not just pass or comments)
-3. Pydantic request/response models defined
-4. Database dependency injection (get_db function with yield pattern)
-5. Error handling on every endpoint (try/except blocks with HTTPException)
-6. Database initialization (Base.metadata.create_all)
+CRITICAL: You MUST call write_file(file_path, ACTUAL_CODE_CONTENT).
+DO NOT call write_file() with empty string - PUT THE REAL CODE IN THE CONTENT PARAMETER!
 
-MANDATORY COMPLETE CODE EXAMPLE:
-```python
+Example of CORRECT tool usage:
+Action: Write File
+Action Input: {"file_path": "src/generated/notes_api/main.py", "content": "from fastapi import FastAPI\\nfrom sqlalchemy import Column, Integer, String, create_engine\\n\\napp = FastAPI()\\n\\n@app.post('/notes')\\ndef create_note():\\n    return {'status': 'created'}"}
+
+Example of WRONG tool usage (DO NOT DO THIS):
+Action: Write File
+Action Input: {"file_path": "src/generated/notes_api/main.py", "content": ""}
+
+Required FastAPI imports:
 from fastapi import FastAPI, Depends, HTTPException, status
-from sqlalchemy import Column, Integer, String, DateTime, create_engine
+from sqlalchemy import Column, Integer, String, create_engine
 from sqlalchemy.orm import Session, sessionmaker, declarative_base
 from pydantic import BaseModel
-from datetime import datetime
-from typing import List
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./app.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+Workflow:
+1. create_project_structure('src/generated/notes_api')
+2. write_file('src/generated/notes_api/main.py', COMPLETE_CODE_HERE)
+3. write_file('src/generated/notes_api/requirements.txt', 'fastapi\\nuvicorn[standard]\\nsqlalchemy\\npydantic')
 
-class Note(Base):
-    __tablename__ = "notes"
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    content = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-Base.metadata.create_all(bind=engine)
-
-class NoteCreate(BaseModel):
-    title: str
-    content: str
-
-class NoteResponse(BaseModel):
-    id: int
-    title: str
-    content: str
-    created_at: datetime
-    class Config:
-        from_attributes = True
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-app = FastAPI()
-
-@app.post("/notes/", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)
-def create_note(note: NoteCreate, db: Session = Depends(get_db)):
-    try:
-        db_note = Note(title=note.title, content=note.content)
-        db.add(db_note)
-        db.commit()
-        db.refresh(db_note)
-        return db_note
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/notes/", response_model=List[NoteResponse])
-def list_notes(db: Session = Depends(get_db)):
-    return db.query(Note).all()
-```
-
-VALIDATION CHECKLIST BEFORE WRITING FILE:
-□ Does code have ALL imports? (Column, Integer, String, DateTime, HTTPException, status)
-□ Are ALL endpoints implemented with actual code? (not pass statements)
-□ Is get_db() function defined with yield pattern?
-□ Is Base.metadata.create_all() present for table creation?
-□ Does each endpoint have try/except error handling?
-□ Are Pydantic models defined for requests and responses?
-□ Can it run immediately with: uvicorn main:app --reload
-
-CRITICAL RULES:
-- Use write_file() for EVERY file you create - NOT optional, MANDATORY
-- NEVER skip imports - include Column, Integer, String, DateTime, etc.
-- ALWAYS implement the actual route logic with database operations
-- ALWAYS add error handling with HTTPException
-- Test your code mentally before writing - it MUST run without errors
-
-YOU MUST CALL write_file() TOOL - Your task is NOT complete until files are written to disk.
-
-EXAMPLE OF PROPER TOOL USAGE:
-Action: write_file('src/generated/notes_api/main.py', complete_code_content)
-
-Your reputation depends on ACTUALLY WRITING FILES, not just describing them.""",
+NEVER put code in Final Answer - put it in write_file content parameter!""",
             tools=[write_file, read_file, validate_python_code, 
                    create_project_structure, generate_requirements],
             llm=get_llm_backend(),
@@ -150,11 +84,13 @@ Your reputation depends on ACTUALLY WRITING FILES, not just describing them.""",
             - Check error handling and edge cases
             - Verify integration between components
             
-            CRITICAL: Use read_file() and test_code() to validate implementations.
-            Example: read_file('src/generated/main.py') then test_code(code_content)
+            CRITICAL: Use read_file(), test_code(), and score_code_tool() to validate implementations.
+            Example: read_file('src/generated/main.py') then score_code_tool('src/generated/main.py')
+            
+            The score_code_tool() provides objective quality metrics (0-100) with specific recommendations.
             
             You provide clear, actionable feedback on issues found.""",
-            tools=[read_file, test_code, validate_python_code, list_directory],
+            tools=[read_file, test_code, validate_python_code, list_directory, score_code_tool],
             llm=get_llm_backend(),
             verbose=True,
             allow_delegation=False
@@ -187,6 +123,60 @@ Your reputation depends on ACTUALLY WRITING FILES, not just describing them.""",
             allow_delegation=False
         )
     
+    def _validate_builder_output(self, output):
+        """Callback to enforce file creation by Builder agent."""
+        from pathlib import Path
+        import os
+        
+        # Check if any files were created in src/generated/
+        generated_dir = Path("src/generated")
+        if not generated_dir.exists():
+            raise ValueError(
+                "❌ BUILDER FAILED: src/generated/ directory doesn't exist. "
+                "Agent MUST call create_project_structure() first."
+            )
+        
+        # Find project subdirectories
+        project_dirs = [d for d in generated_dir.iterdir() if d.is_dir()]
+        if not project_dirs:
+            raise ValueError(
+                "❌ BUILDER FAILED: No project created in src/generated/. "
+                "Agent MUST call write_file() to create files."
+            )
+        
+        # Check for main application file
+        main_files = []
+        for proj_dir in project_dirs:
+            main_files.extend(list(proj_dir.glob("main.py")) + list(proj_dir.glob("app.py")))
+        
+        if not main_files:
+            raise ValueError(
+                "❌ BUILDER FAILED: No main.py or app.py found. "
+                f"Agent MUST write application code. Found dirs: {[d.name for d in project_dirs]}"
+            )
+        
+        # Validate main file has actual code (not empty)
+        main_file = main_files[0]
+        code_content = main_file.read_text()
+        if len(code_content) < 100:
+            raise ValueError(
+                f"❌ BUILDER FAILED: {main_file.name} is too short ({len(code_content)} chars). "
+                "Must contain complete implementation with imports, models, and endpoints."
+            )
+        
+        # Check for critical imports in FastAPI projects
+        if "fastapi" in self.task_description.lower() or "api" in self.task_description.lower():
+            required_imports = ["FastAPI", "Column", "Integer", "String"]
+            missing_imports = [imp for imp in required_imports if imp not in code_content]
+            if missing_imports:
+                raise ValueError(
+                    f"❌ BUILDER FAILED: Missing critical imports: {missing_imports}. "
+                    "FastAPI code must include all SQLAlchemy and FastAPI imports."
+                )
+        
+        print(f"✅ VALIDATION PASSED: Found {main_file} with {len(code_content)} chars of code")
+        return output
+    
     def _create_tasks(self):
         """Create streamlined 4-phase workflow"""
         
@@ -207,60 +197,30 @@ Your reputation depends on ACTUALLY WRITING FILES, not just describing them.""",
         
         # Phase 2: Implementation with Completeness Requirements
         build_task = Task(
-            description="""Implement a COMPLETE, RUNNABLE system from the architecture blueprint.
+            description="""Call write_file() to save complete FastAPI code.
 
-YOU MUST DELIVER PRODUCTION-READY CODE THAT RUNS WITHOUT MODIFICATIONS.
+CRITICAL: The "content" parameter of write_file() must contain the ACTUAL CODE, not empty string!
 
-MANDATORY REQUIREMENTS (ALL MUST BE INCLUDED):
-1. Complete Imports Section:
-   from fastapi import FastAPI, Depends, HTTPException, status
-   from sqlalchemy import Column, Integer, String, DateTime, create_engine
-   from sqlalchemy.orm import Session, sessionmaker, declarative_base
-   from pydantic import BaseModel
-   from datetime import datetime
-   from typing import List
+Step 1: create_project_structure('src/generated/notes_api')
 
-2. Database Configuration:
-   - SQLALCHEMY_DATABASE_URL with proper path
-   - create_engine with connect_args={{"check_same_thread": False}}
-   - SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-   - Base = declarative_base()
-   - Base.metadata.create_all(bind=engine) <- CRITICAL for table creation
+Step 2: write_file('src/generated/notes_api/main.py', YOUR_COMPLETE_CODE)
+WHERE YOUR_COMPLETE_CODE includes:
+- from fastapi import FastAPI, Depends, HTTPException, status
+- from sqlalchemy import Column, Integer, String, create_engine
+- from sqlalchemy.orm import Session, sessionmaker, declarative_base
+- from pydantic import BaseModel
+- Database setup with create_engine
+- Note model with Column(Integer, ...), Column(String, ...)
+- Pydantic schemas (NoteCreate, NoteResponse)
+- get_db() function with yield
+- @app.post('/notes') with db.add(), db.commit()
+- @app.get('/notes') with db.query().all()
+- Full error handling
 
-3. ORM Models:
-   - Complete SQLAlchemy model with ALL columns properly typed
-   - Use Column(Integer, ...), Column(String, ...), Column(DateTime, ...)
+Step 3: write_file('src/generated/notes_api/requirements.txt', 'fastapi\\nuvicorn[standard]\\nsqlalchemy\\npydantic')
 
-4. Pydantic Request/Response Schemas:
-   - Create schema (e.g., NoteCreate) for POST requests
-   - Response schema (e.g., NoteResponse) with from_attributes=True
-
-5. Database Dependency:
-   def get_db():
-       db = SessionLocal()
-       try:
-           yield db
-       finally:
-           db.close()
-
-6. ALL API Endpoints FULLY IMPLEMENTED (not just defined):
-   - POST endpoint with db.add(), db.commit(), db.refresh()
-   - GET list endpoint with db.query(Model).all()
-   - GET by ID with db.query(Model).filter(Model.id == id).first()
-   - PUT endpoint with query, update, commit logic
-   - DELETE endpoint with query, delete, commit logic
-   - Each with try/except and HTTPException(status_code=..., detail=...)
-
-7. Additional Files via write_file():
-   - requirements.txt: fastapi, uvicorn[standard], sqlalchemy, pydantic
-   - README.md with uvicorn startup command
-
-VALIDATION BEFORE SUBMITTING:
-- Run mental check: Does this code have NameError? (check all imports)
-- Are functions implemented? (not just pass)
-- Can it start with: uvicorn main:app --reload
-
-Save main application to: src/generated/[project_name]/main.py""",
+Your task is complete ONLY when write_file() is called WITH CODE CONTENT (not empty string).
+DO NOT put code in Final Answer - put it in write_file() content parameter!""",
             expected_output="""FILES WRITTEN TO DISK using write_file() tool:
 1. src/generated/notes_api/main.py (150-250 lines with ALL imports and endpoints)
 2. src/generated/notes_api/requirements.txt
@@ -270,7 +230,8 @@ PROOF OF COMPLETION: List the write_file() calls you made with filenames.""",
             agent=self.agents['builder'],
             context=[arch_task],
             # Force tool usage
-            output_file="src/generated/notes_api/main.py"
+            output_file="src/generated/notes_api/main.py",
+            callback=self._validate_builder_output
         )
         
         # Phase 3: Quality Assurance

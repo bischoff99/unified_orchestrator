@@ -8,9 +8,9 @@ load_dotenv()
 # Model Configuration
 # ========================================
 MODEL_CONFIG = {
-    "model_name": os.getenv("MODEL_NAME", "llama3.1:8b-instruct-q5_K_M"),  # Default to llama3.1 for Ollama
-    "temperature": float(os.getenv("MODEL_TEMPERATURE", "0.3")),  # Lower for more deterministic, complete code
-    "max_tokens": int(os.getenv("MODEL_MAX_TOKENS", "4096")),  # Increased for complete implementations
+    "model_name": os.getenv("MODEL_NAME", "codellama:13b-instruct"),  # Better tool calling than llama3.1
+    "temperature": float(os.getenv("MODEL_TEMPERATURE", "0.1")),  # Lower for tool usage reliability
+    "max_tokens": int(os.getenv("MODEL_MAX_TOKENS", "8192")),  # Increased for complete code implementations
 }
 
 MODEL_BACKEND = os.getenv("MODEL_BACKEND", "ollama").lower()  # ollama, mlx, openai, anthropic, huggingface
@@ -61,13 +61,14 @@ MLX_MODEL_PATH = os.getenv("MLX_MODEL_PATH", "mlx_models/llama3-8b")
 MLX_MAX_TOKENS = int(os.getenv("MLX_MAX_TOKENS", "512"))
 
 # ========================================
-# Ollama Performance (M3 Max)
+# Ollama Performance (M3 Max Optimization)
 # ========================================
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_NUM_THREAD = int(os.getenv("OLLAMA_NUM_THREAD", "16"))
-OLLAMA_NUM_BATCH = int(os.getenv("OLLAMA_NUM_BATCH", "2048"))
-OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "40"))
-OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+OLLAMA_NUM_THREAD = int(os.getenv("OLLAMA_NUM_THREAD", "14"))  # Leave 2 cores for system
+OLLAMA_NUM_BATCH = int(os.getenv("OLLAMA_NUM_BATCH", "512"))  # Smaller batches for faster response
+OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "1"))  # Let Ollama auto-detect GPU layers
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))  # Keep for code context
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "2048"))  # Max tokens per response
 
 # ========================================
 # HuggingFace Configuration
@@ -85,10 +86,17 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 # Backend Getter
 # ========================================
 def get_llm_backend():
-    """Get configured LLM backend"""
+    """Get configured LLM backend with optimized settings"""
     if MODEL_BACKEND == "ollama":
         from crewai import LLM
-        return LLM(model=f"ollama/{MODEL_CONFIG['model_name']}")
+        return LLM(
+            model=f"ollama/{MODEL_CONFIG['model_name']}",
+            base_url=OLLAMA_BASE_URL,
+            temperature=MODEL_CONFIG['temperature'],
+            num_ctx=OLLAMA_NUM_CTX,
+            num_predict=OLLAMA_NUM_PREDICT,
+            num_thread=OLLAMA_NUM_THREAD,
+        )
     elif MODEL_BACKEND == "mlx":
         from src.utils.mlx_backend import MLXBackend
         return MLXBackend(MLX_MODEL_PATH)
